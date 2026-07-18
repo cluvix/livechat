@@ -1,0 +1,19 @@
+{
+  "name": "cluvix-livechat-widget",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cluvix livechat embeddable widget (vanilla TS, độc lập với app Angular chính).",
+  "type": "module",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "build:loader": "vite build --config vite.loader.config.ts",
+    "build:app": "vite build --config vite.app.config.ts",
+    "build:widget": "npm run type-check && npm run build:loader && npm run build:app",
+    "size": "node scripts/size.mjs"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vite": "^7.0.0",
+    "vite-plugin-singlefile": "^2.2.0"
+  }
+}

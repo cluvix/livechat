@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trang test nhúng Cluvix Livechat</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; padding: 40px; line-height: 1.6; color: #222; }
+      .wrap { max-width: 720px; margin: 0 auto; }
+      code { background: #f3f3f3; padding: 2px 6px; border-radius: 4px; }
+      pre { background: #f6f8fa; padding: 14px; border-radius: 8px; overflow-x: auto; }
+      .hint { color: #666; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Trang giả lập website khách</h1>
+      <p>Trang này mô phỏng website của khách hàng có nhúng widget livechat Cluvix. Bong bóng chat xuất hiện ở góc.</p>
+
+      <h2>Cách test tay</h2>
+      <ol>
+        <li>Bảo đảm backend <code>air</code> chạy ở <code>:8081</code> và đã build widget vào <code>public/</code>
+          (<code>cd frontend/widget &amp;&amp; npm run build:widget</code>). Backend serve <code>/widget.js</code>,
+          <code>/widget.html</code>, <code>/api/*</code> cùng origin.</li>
+        <li>Tạo 1 site livechat (config omni-channel) và thêm origin của TRANG NÀY vào
+          <code>allowed_origins</code> — ví dụ <code>http://localhost:5500</code> (origin bạn serve file này).
+          BE chỉ cho <code>http</code> với <code>localhost/127.0.0.1</code>.</li>
+        <li>Serve thư mục <code>dev/</code> qua static server ở đúng origin đã whitelist
+          (vd <code>npx serve -l 5500 frontend/widget/dev</code>). MỞ bằng origin đó, KHÔNG mở bằng
+          <code>file://</code> (Origin null sẽ bị 403).</li>
+        <li>Thay <code>SITE_KEY_HERE</code> + <code>BACKEND_ORIGIN</code> trong snippet dưới bằng giá trị thật
+          (site_key nhận khi tạo site; BACKEND_ORIGIN = origin backend, vd <code>http://localhost:8081</code>).</li>
+        <li>Bấm bong bóng → điền pre-chat (nếu bật) → chat. Mở inbox omnichat (staff) trả lời → tin hiện realtime
+          ở widget; staff gõ → widget hiện “đang trả lời…”. Đóng widget, staff gửi tin → badge unread trên bong bóng.</li>
+      </ol>
+
+      <h2>Snippet nhúng</h2>
+      <pre>&lt;script
+  src="BACKEND_ORIGIN/widget.js"
+  data-site-key="SITE_KEY_HERE"
+  async&gt;&lt;/script&gt;</pre>
+      <p class="hint">Snippet thật do BE trả về khi tạo/sửa site (field <code>snippet</code>).</p>
+
+      <!-- ▼▼ Dán snippet thật vào đây để test (bỏ comment + điền BACKEND_ORIGIN + SITE_KEY) ▼▼ -->
+      <!--
+      <script src="http://localhost:8081/widget.js" data-site-key="SITE_KEY_HERE" async></script>
+      -->
+    </div>
+  </body>
+</html>
