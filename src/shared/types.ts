@@ -73,3 +73,29 @@ export const DEFAULT_PRECHAT: PreChatForm = {
   require_name: true,
   require_phone: true,
 };
+
+/** sender hiển thị kèm campaign — NULL khi sender_user_id NULL hoặc chưa có tên (OD-B5 v1, chốt ở B-02);
+ *  FE tự fallback tên/avatar site khi null (B-05). */
+export interface CampaignSender {
+  name: string;
+  avatar: string;
+}
+
+/**
+ * Proactive campaign preview — trích từ `GET /api/client/livechat/campaigns?site_key=` (story B-02,
+ * `backend/internal/modules/client/livechat/handler.go` `ListCampaigns`, KHÔNG VisitorAuth). Chỉ campaign
+ * `enabled`. Widget matching (URL pattern + time-on-page) chạy 100% client (story B-04).
+ */
+export interface CampaignPreview {
+  id: number;
+  url_pattern: string;
+  time_on_page: number; // giây — đếm khi visitor Ở URL khớp pattern
+  only_business_hours: boolean;
+  message: string;
+  sender: CampaignSender | null;
+}
+
+/** data của GET /api/client/livechat/campaigns (.data.campaigns). */
+export interface CampaignsData {
+  campaigns: CampaignPreview[];
+}

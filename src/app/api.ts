@@ -59,6 +59,16 @@ export function sendTyping(): Promise<ApiResult<null>> {
   return call<null>('/typing', { method: 'POST', headers: authHeaders() });
 }
 
+/** story B-05 (AC4) — sau khi handshake (compact-preview click), tạo tin mở đầu campaign trong conversation
+ * vừa handshake. Idempotent phía BE (conversation đã có message → no-op `triggered:false`) — gọi thất bại
+ * không chặn luồng mở chat (best-effort, xem main.ts triggerCampaignThenContinue). */
+export function triggerCampaign(campaignId: number): Promise<ApiResult<{ triggered: boolean }>> {
+  return call<{ triggered: boolean }>(`/campaigns/${campaignId}/trigger`, {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+}
+
 export function sseUrl(): string {
   return `${API}/sse?token=${encodeURIComponent(state.jwt)}`;
 }

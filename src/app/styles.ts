@@ -58,4 +58,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Ar
   text-align:center;padding:24px;gap:10px;color:var(--lc-muted)}
 .lc-center svg{opacity:.5}
 .lc-note{font-size:12px;color:var(--lc-muted);text-align:center;padding:6px 12px}
+
+/* story B-05: compact-preview — hiện trong khung nhỏ (loader resize theo set_compact_view), thay html/body
+   height:100% (ở trên) bằng khối auto-height để loader đo đúng chiều cao thật cần cho khung. */
+.lc-preview{position:relative;height:auto;min-height:0;background:var(--lc-bg);border-radius:14px;
+  box-shadow:0 1px 3px rgba(0,0,0,.08);padding:12px 32px 12px 12px;cursor:pointer}
+.lc-preview-x{position:absolute;top:6px;right:6px;appearance:none;border:0;background:transparent;
+  color:var(--lc-muted);cursor:pointer;padding:4px;border-radius:50%;display:flex}
+.lc-preview-x:hover{background:#f1f3f5;color:#111827}
+.lc-preview-body{display:flex;align-items:flex-start;gap:10px}
+.lc-preview-avatar{width:36px;height:36px;border-radius:50%;flex:0 0 auto;object-fit:cover;background:var(--lc-in-bg)}
+.lc-preview-avatar-fallback{display:flex;align-items:center;justify-content:center;background:var(--lc-primary);
+  color:#fff;font-weight:700;font-size:14px}
+.lc-preview-text{min-width:0;flex:1 1 auto}
+.lc-preview-name{font-size:12px;font-weight:700;color:#111827;margin-bottom:2px}
+.lc-preview-msg{font-size:13px;color:#111827;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;
+  -webkit-box-orient:vertical;overflow:hidden}
 `;

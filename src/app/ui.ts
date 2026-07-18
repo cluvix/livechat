@@ -1,7 +1,14 @@
 // UI iframe app: header + vùng tin + composer + pre-chat form + trạng thái offline/loading.
 // An toàn XSS: nội dung tin render bằng textContent (KHÔNG innerHTML) — content staff/visitor không tin cậy.
 import { APP_CSS } from './styles';
-import { SRC_INTERNAL, SRC_VISITOR, type PreChatForm, type WidgetMessage, type WidgetTheme } from '../shared/types';
+import {
+  SRC_INTERNAL,
+  SRC_VISITOR,
+  type CampaignPreview,
+  type PreChatForm,
+  type WidgetMessage,
+  type WidgetTheme,
+} from '../shared/types';
 
 export interface UiCallbacks {
   onSend: (text: string) => void;
@@ -9,6 +16,11 @@ export interface UiCallbacks {
   onClose: () => void;
   onSubmitPreChat: (name: string, phone: string) => void;
   onRetry: (echoId: string, text: string) => void;
+}
+
+export interface CampaignPreviewCallbacks {
+  onClick: () => void;
+  onDismiss: () => void;
 }
 
 interface RenderMsg {
@@ -119,6 +131,33 @@ export class WidgetUI {
     btn.disabled = true;
     btn.textContent = 'Đang kết nối…';
     this.cb.onSubmitPreChat(name, phone);
+  }
+
+  /** story B-05 (AC1/AC2) — bong bóng preview nhỏ (message + sender), KHÔNG mở full chat. Trả về chiều cao
+   * thật (px) của khối vừa render để caller (main.ts) xin loader resize iframe đúng khít (postMessage
+   * set_compact_view). sender null → fallback avatar chữ cái đầu + tên site (OD-B5). */
+  showCampaignPreview(campaign: CampaignPreview, siteFallbackName: string, cb: CampaignPreviewCallbacks): number {
+    const name = (campaign.sender?.name || siteFallbackName || 'Trò chuyện').trim() || 'Trò chuyện';
+    const avatarUrl = campaign.sender?.avatar || '';
+    const avatarHtml = avatarUrl
+      ? `<img class="lc-preview-avatar" src="${escapeAttr(avatarUrl)}" alt=""/>`
+      : `<div class="lc-preview-avatar lc-preview-avatar-fallback">${escapeText(name.charAt(0).toUpperCase() || '?')}</div>`;
+    this.host.innerHTML = `<div class="lc-preview">
+      <button class="lc-preview-x" type="button" aria-label="Đóng">${xIcon()}</button>
+      <div class="lc-preview-body">
+        ${avatarHtml}
+        <div class="lc-preview-text">
+          <div class="lc-preview-name">${escapeText(name)}</div>
+          <div class="lc-preview-msg">${escapeText(campaign.message)}</div>
+        </div>
+      </div></div>`;
+    this.host.querySelector<HTMLButtonElement>('.lc-preview-x')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cb.onDismiss();
+    });
+    this.host.querySelector<HTMLElement>('.lc-preview-body')!.addEventListener('click', () => cb.onClick());
+    const el = this.host.querySelector<HTMLElement>('.lc-preview')!;
+    return el.getBoundingClientRect().height || 96;
   }
 
   showChat(greeting: string) {

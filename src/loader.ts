@@ -12,7 +12,16 @@
 // KHÔNG analytics/cookie bên thứ 3; localStorage chỉ visitor_token + open state + cache config (AC).
 
 import { WIDGET_CHANNEL, type IframeToLoader, type LoaderToIframe } from './shared/protocol';
-import { DEFAULT_THEME, type SessionData, type WidgetTheme, type ClientEnvelope } from './shared/types';
+import {
+  DEFAULT_THEME,
+  type SessionData,
+  type WidgetTheme,
+  type ClientEnvelope,
+  type CampaignPreview,
+  type CampaignsData,
+} from './shared/types';
+
+const CAMPAIGNS_TTL_MS = 60 * 60 * 1000; // AC2: cache 1h theo siteKey
 
 interface Bootstrap {
   siteKey: string;
@@ -43,6 +52,7 @@ function start({ siteKey, apiBase }: Bootstrap) {
   const LS_TOKEN = `cluvix_lc_token_${siteKey}`;
   const LS_OPEN = `cluvix_lc_open_${siteKey}`;
   const LS_CFG = `cluvix_lc_cfg_${siteKey}`;
+  const LS_CAMPAIGNS = `cluvix_lc_campaigns_${siteKey}`;
   const widgetOrigin = apiBase; // widget.html serve cùng domain backend (webhookBase); iframe.origin = apiBase
 
   const lsGet = (k: string): string | null => {
@@ -69,6 +79,8 @@ function start({ siteKey, apiBase }: Bootstrap) {
   let handshaking = false;
   let lastError: { disabled: boolean } | null = null; // buffer lỗi handshake nếu iframe chưa 'ready'
   let cachedTheme: WidgetTheme = readCachedTheme();
+  let campaigns: CampaignPreview[] = []; // story B-04 (AC2) — buffer để gửi lại khi iframe 'ready' sau
+  let lastSentUrl: string | null = null; // story B-04 (AC1) — tránh gửi trùng url_changed khi không đổi
 
   function readCachedTheme(): WidgetTheme {
     const raw = lsGet(LS_CFG);
@@ -81,6 +93,92 @@ function start({ siteKey, apiBase }: Bootstrap) {
       }
     }
     return { ...DEFAULT_THEME };
+  }
+
+  // ── story B-04: campaign list (fetch 1 lần, cache 1h) ──
+  // Fetch ĐỘC LẬP handshake/session — campaign phải sẵn sàng TRƯỚC khi visitor mở chat. Loader (Origin
+  // trang khách) là nơi DUY NHẤT gọi được endpoint này (BE check Origin ∈ allowed_origins, mirror /session);
+  // iframe (Origin Cluvix) không tự fetch được nên loader gửi list qua postMessage.
+  function readCachedCampaigns(): CampaignPreview[] | null {
+    const raw = lsGet(LS_CAMPAIGNS);
+    if (!raw) return null;
+    try {
+      const cached = JSON.parse(raw) as { ts?: number; list?: CampaignPreview[] };
+      if (!cached || typeof cached.ts !== 'number' || !Array.isArray(cached.list)) return null;
+      if (Date.now() - cached.ts > CAMPAIGNS_TTL_MS) return null;
+      return cached.list;
+    } catch {
+      return null;
+    }
+  }
+
+  // story B-05 (AC3): `force=true` bỏ qua cache localStorage — dùng khi iframe xin refetch trước khi hiện
+  // compact-preview (double-check campaign còn `enabled`, admin có thể vừa tắt).
+  async function loadCampaigns(force = false): Promise<void> {
+    if (!force) {
+      const cached = readCachedCampaigns();
+      if (cached) {
+        campaigns = cached;
+        postToIframe({ channel: WIDGET_CHANNEL, type: 'campaigns', list: campaigns });
+        return;
+      }
+    }
+    try {
+      const res = await fetch(`${apiBase}/api/client/livechat/campaigns?site_key=${encodeURIComponent(siteKey)}`);
+      const env = (await res.json()) as ClientEnvelope<CampaignsData>;
+      if (!env || env.success !== true || !env.data || !Array.isArray(env.data.campaigns)) return; // site tắt/lỗi → im lặng, không phá trang khách
+      campaigns = env.data.campaigns;
+      lsSet(LS_CAMPAIGNS, JSON.stringify({ ts: Date.now(), list: campaigns }));
+      postToIframe({ channel: WIDGET_CHANNEL, type: 'campaigns', list: campaigns });
+    } catch {
+      /* lỗi mạng: bỏ qua — campaign là tính năng cộng thêm, không chặn chat lõi */
+    }
+  }
+
+  // ── story B-04: theo dõi URL đổi (kể cả SPA không reload — AC1) ──
+  function sendUrlIfChanged(url: string, force = false) {
+    if (!force && url === lastSentUrl) return;
+    lastSentUrl = url;
+    postToIframe({ channel: WIDGET_CHANNEL, type: 'url_changed', url });
+  }
+
+  function trackUrlChanges() {
+    const wrap = <K extends 'pushState' | 'replaceState'>(key: K) => {
+      const original = history[key].bind(history);
+      history[key] = ((...args: Parameters<History[K]>) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ret = (original as any)(...args);
+        queueUrlCheck();
+        return ret;
+      }) as History[K];
+    };
+    wrap('pushState');
+    wrap('replaceState');
+    window.addEventListener('popstate', queueUrlCheck);
+    window.addEventListener('hashchange', queueUrlCheck);
+    // Fallback cho SPA lạ không dùng history API (Chatwoot DOMHelpers.js:49-75): quan sát DOM, coalesce
+    // (setTimeout 50ms) để không spam so sánh href liên tục trên trang thay đổi DOM nhiều.
+    let scheduled = false;
+    const mo = new MutationObserver(() => {
+      if (scheduled) return;
+      scheduled = true;
+      window.setTimeout(() => {
+        scheduled = false;
+        sendUrlIfChanged(location.href);
+      }, 50);
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
+
+  let urlCheckQueued = false;
+  function queueUrlCheck() {
+    if (urlCheckQueued) return;
+    urlCheckQueued = true;
+    // setTimeout 0: pushState/replaceState cập nhật location.href đồng bộ nhưng tách khỏi lệnh gọi lồng nhau.
+    window.setTimeout(() => {
+      urlCheckQueued = false;
+      sendUrlIfChanged(location.href);
+    }, 0);
   }
 
   // ── Shadow DOM host (cô lập CSS 2 chiều, z-index rất cao) ──
@@ -113,6 +211,13 @@ function start({ siteKey, apiBase }: Bootstrap) {
     if (host.isConnected) return;
     document.body.appendChild(host);
     applyThemeToLauncher(cachedTheme);
+    trackUrlChanges(); // story B-04 (AC1) — cần document.body cho MutationObserver fallback
+    void loadCampaigns(); // story B-04 (AC2) — độc lập handshake, chạy TRƯỚC khi visitor mở chat
+    // story B-05 (CRITICAL): mount iframe NGAY, ẨN (frameWrap.hidden vẫn true) — để timer campaign
+    // (CampaignMatcher trong iframe) chạy được ngay cả khi widget đang đóng. KHÔNG chờ open()/click.
+    // Iframe 'ready' KHÔNG tự handshake (xem case 'ready' bên dưới) nên việc mount sớm không tạo
+    // conversation/handshake ngoài ý muốn.
+    ensureIframe();
     // Khôi phục trạng thái mở (nếu tab trước để mở) — chỉ auto-mở trên desktop để không chiếm màn mobile.
     if (lsGet(LS_OPEN) === '1' && !isMobile()) open();
   }
@@ -120,25 +225,52 @@ function start({ siteKey, apiBase }: Bootstrap) {
   launcher.addEventListener('click', () => (isOpen ? close() : open()));
 
   // ── mở / đóng ──
-  function open() {
+  // story B-05: tách phần "hiện khung đầy đủ" (showFullFrame) khỏi phần "đảm bảo có session" (ensureSession)
+  // — click preview compact cần mở khung đầy đủ NGAY (trước cả khi biết có cần pre-chat form hay không),
+  // nhưng handshake chỉ chạy khi iframe chủ động xin qua message 'handshake' (giữ đúng rule "handshake chỉ
+  // khi mở chat thật", tránh 2 nơi cùng gọi handshake).
+  function showFullFrame() {
     isOpen = true;
     lsSet(LS_OPEN, '1');
     unread = 0;
     renderBadge();
     frameWrap.hidden = false;
+    frameWrap.classList.remove('lc-compact');
+    frameWrap.style.height = '';
     launcher.classList.add('lc-open');
     ensureIframe();
-    // Bảo đảm có session (handshake nếu chưa) — mở là thời điểm handshake (trước đó bubble dùng default/cache).
-    void ensureSession();
     postToIframe({ channel: WIDGET_CHANNEL, type: 'opened' });
+  }
+
+  function open() {
+    showFullFrame();
+    // Bảo đảm có session (handshake nếu chưa) — mở bubble là thời điểm handshake (trước đó bubble dùng default/cache).
+    void ensureSession();
   }
 
   function close() {
     isOpen = false;
     lsSet(LS_OPEN, '0');
     frameWrap.hidden = true;
+    frameWrap.classList.remove('lc-compact');
+    frameWrap.style.height = '';
     launcher.classList.remove('lc-open');
     postToIframe({ channel: WIDGET_CHANNEL, type: 'closed' });
+  }
+
+  // ── story B-05: compact-preview (widget đóng, hiện bong bóng nhỏ mời chat) ──
+  function showCompactFrame(height: number) {
+    ensureIframe();
+    frameWrap.hidden = false;
+    frameWrap.classList.add('lc-compact');
+    frameWrap.style.height = `${Math.max(60, Math.round(height))}px`;
+    // isOpen CỐ Ý giữ nguyên false — compact-preview không phải "mở chat thật" (không handshake).
+  }
+
+  function hideCompactFrame() {
+    frameWrap.classList.remove('lc-compact');
+    frameWrap.style.height = '';
+    if (!isOpen) frameWrap.hidden = true;
   }
 
   function ensureIframe() {
@@ -206,11 +338,25 @@ function start({ siteKey, apiBase }: Bootstrap) {
         iframeReady = true;
         if (session) postToIframe({ channel: WIDGET_CHANNEL, type: 'session', data: session });
         else if (lastError) postToIframe({ channel: WIDGET_CHANNEL, type: 'session_error', disabled: lastError.disabled });
-        else void ensureSession();
+        // story B-05 (CRITICAL): KHÔNG tự ensureSession() ở đây. Iframe giờ mount ẨN ngay từ boot (không
+        // chờ open()) — nếu handshake tự động mỗi khi iframe 'ready', MỌI page-load sẽ tạo conversation dù
+        // visitor chưa hề mở chat (vi phạm rule "handshake chỉ khi mở chat"). Handshake CHỈ chạy khi iframe
+        // chủ động xin qua message 'handshake' (mở bubble → open() gọi ensureSession(); click compact-preview
+        // → app.ts tự post 'handshake' sau bước exit_compact_view/pre-chat).
+        // isOpen có thể đã true ở đây (khôi phục trạng thái mở từ tab trước, mount() gọi open() trước khi
+        // iframe kịp 'ready' → message 'opened' gốc bị rớt vì iframeReady lúc đó còn false) — gửi bù lại.
+        if (isOpen) postToIframe({ channel: WIDGET_CHANNEL, type: 'opened' });
+        // story B-04: iframe vừa mount → gửi ngay campaign list đã có (nếu fetch xong trước đó) + URL hiện
+        // tại (force=true: đây là lần gửi ĐẦU cho iframe này dù URL chưa đổi kể từ lần gửi trước).
+        if (campaigns.length) postToIframe({ channel: WIDGET_CHANNEL, type: 'campaigns', list: campaigns });
+        sendUrlIfChanged(location.href, true);
         break;
       case 'handshake':
         // Iframe xin (re)handshake: pre_chat (submit form) hoặc refresh JWT (undefined). Xoá session cũ để
         // handshake lại (JWT mới), giữ nguyên conversation qua visitor_token đã lưu.
+        // story B-05: click compact-preview gọi 'handshake' trong khi widget đang ĐÓNG (isOpen=false) — mở
+        // khung đầy đủ NGAY trước khi handshake chạy (tránh hiện pre-chat form trong khung nhỏ compact).
+        if (!isOpen) showFullFrame();
         session = null;
         void handshake(msg.pre_chat);
         break;
@@ -222,6 +368,19 @@ function start({ siteKey, apiBase }: Bootstrap) {
           unread = msg.count;
           renderBadge();
         }
+        break;
+      case 'campaign_ready':
+        // Chỉ tín hiệu quan sát — B-05 tự xử lý toàn bộ luồng preview trong iframe (xem protocol.ts).
+        break;
+      case 'set_compact_view':
+        showCompactFrame(msg.height);
+        break;
+      case 'exit_compact_view':
+        if (msg.reason === 'open') showFullFrame();
+        else hideCompactFrame();
+        break;
+      case 'refetch_campaigns':
+        void loadCampaigns(true);
         break;
     }
   });
@@ -287,10 +446,17 @@ function shadowCss(primary = '#1677ff', left = false): string {
 .lc-badge{position:absolute;top:-2px;${left ? 'left:-2px;' : 'right:-2px;'}min-width:20px;height:20px;padding:0 5px;border-radius:10px;
   background:#ff5722;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px #fff}
 .lc-frame-wrap{position:fixed;bottom:92px;${frameSide}width:350px;height:550px;max-height:calc(100vh - 112px);
-  border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:#fff}
+  border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:#fff;
+  transition:width .15s ease, height .15s ease}
 .lc-frame{width:100%;height:100%;border:0;display:block}
+/* story B-05: compact-preview — bong bóng nhỏ nổi trên bubble, KHÔNG chiếm màn hình đầy đủ. height do JS
+   set qua style inline (postMessage set_compact_view {height}) — thắng width/height ở trên nhờ specificity. */
+.lc-frame-wrap.lc-compact{width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
 @media (max-width:480px){
   .lc-frame-wrap{top:0;left:0;right:0;bottom:0;width:100%;height:100%;max-height:none;border-radius:0}
   .lc-launcher.lc-open{display:none}
+  /* compact-preview vẫn phải là card nhỏ nổi trên mobile, không được luật full-screen ở trên đè lên */
+  .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:92px!important;
+    width:auto!important;max-width:calc(100vw - 24px);height:auto!important;border-radius:14px!important}
 }`;
 }
