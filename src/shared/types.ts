@@ -1,6 +1,6 @@
 // Shape khớp BE (story-07 config + story-17 session/message). KHÔNG đoán — trích từ handler thật:
-//   backend/internal/modules/client/livechat/handler.go (Session, message, messages)
-//   backend/internal/modules/config/omni_channel/handler/livechat.go (widgetTheme, preChatForm)
+//   backend/internal/modules/public/livechat/handler.go (Session, message, messages)
+//   backend/internal/modules/webapp/config/omni_channel/handler/livechat.go (widgetTheme, preChatForm)
 
 /** widget_theme — chốt story-07 AC3 (livechat.go widgetTheme). launcher_label optional. */
 export interface WidgetTheme {
@@ -83,7 +83,7 @@ export interface CampaignSender {
 
 /**
  * Proactive campaign preview — trích từ `GET /api/client/livechat/campaigns?site_key=` (story B-02,
- * `backend/internal/modules/client/livechat/handler.go` `ListCampaigns`, KHÔNG VisitorAuth). Chỉ campaign
+ * `backend/internal/modules/public/livechat/handler.go` `ListCampaigns`, KHÔNG VisitorAuth). Chỉ campaign
  * `enabled`. Widget matching (URL pattern + time-on-page) chạy 100% client (story B-04).
  */
 export interface CampaignPreview {
