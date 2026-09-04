@@ -53,6 +53,22 @@ export function isValidPhone(raw: string, region: 'VN' | 'INTL' = 'VN'): boolean
   return VN_MOBILE.test(s) || E164.test(s);
 }
 
+
+/**
+ * `<style>` của app chỉ được nhúng MỘT LẦN vào <head>. resetForNewConversation() dựng lại WidgetUI mỗi lần
+ * đổi hội thoại — trước v1.3.3 mỗi lần dựng lại append thêm một thẻ <style> y hệt, phình dần theo số lần
+ * reset. Kiểm bằng id trên thẻ (không chỉ cờ module) để kể cả khi module bị nạp 2 lần vẫn chỉ có 1 thẻ.
+ */
+const APP_CSS_STYLE_ID = 'lc-app-css';
+
+function injectAppCss() {
+  if (document.getElementById(APP_CSS_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = APP_CSS_STYLE_ID;
+  style.textContent = APP_CSS;
+  document.head.appendChild(style);
+}
+
 export class WidgetUI {
   private host: HTMLElement;
   private theme: WidgetTheme;
@@ -78,9 +94,7 @@ export class WidgetUI {
     this.locale = locale;
     this.s = t(locale);
     this.timeFormatter = makeTimeFormatter(locale);
-    const style = document.createElement('style');
-    style.textContent = APP_CSS;
-    document.head.appendChild(style);
+    injectAppCss();
     this.applyTheme(theme);
   }
 

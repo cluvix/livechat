@@ -7,6 +7,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-04
+
+### Changed
+
+- Internal refactor only — no behavior change. The public contract is untouched: `postMessage` protocol,
+  `data-*` attributes, the `window.cluvixChat` JS API, CustomEvent names, CSS class names and every
+  user-visible string are byte-identical.
+- `src/loader.ts` (949 lines, a single ~700-line `start()` holding ~30 closures) is now a ~80-line
+  assembly root over `src/loader/`: `bootstrap.ts` (data-attr parsing + validation), `state.ts` (one
+  `LoaderState` object replacing the closure variables), `storage.ts`, `css.ts` (`shadowCss`,
+  `badgeRingCss`, icon), `frame.ts` (Shadow DOM host, launcher, frame open/close animation,
+  compact-preview, `visualViewport` fit, badge, focus), `session.ts` (handshake broker, resume-token
+  storage, identity/`setUser`), `campaigns-bridge.ts` (campaign fetch/cache + URL tracking),
+  `bridge.ts` (postMessage in/out + public CustomEvents) and `api.ts` (`window.cluvixChat` + call queue).
+  The build output is still a single IIFE `widget.js` from the same `src/loader.ts` entry.
+
+### Fixed
+
+- The iframe app appended a duplicate `<style>` tag with the whole app CSS to `<head>` every time
+  `WidgetUI` was constructed — i.e. on each `resetForNewConversation()`. It is now injected once
+  (guarded by the `lc-app-css` element id).
+
 ## [1.3.2] - 2026-09-04
 
 ### Security
@@ -139,7 +161,8 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.3...HEAD
+[1.3.3]: https://github.com/cluvix/livechat/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/cluvix/livechat/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/cluvix/livechat/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/cluvix/livechat/compare/v1.2.0...v1.3.0
