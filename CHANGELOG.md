@@ -7,6 +7,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-04
+
+### Added
+- Dark mode. Every neutral colour of the panel is a CSS custom property (`--lc-bg`, `--lc-surface`,
+  `--lc-surface-2`, `--lc-text`, `--lc-muted`, `--lc-line`, `--lc-in-bg`, `--lc-danger`) with a dark
+  palette applied from `prefers-color-scheme` — the widget follows the visitor's operating system with no
+  configuration. New `widget_theme.color_scheme` (`auto` | `light` | `dark`, default `auto`) forces one
+  mode; the muted colour was checked to 6.5:1 on the dark message surface (AA needs 4.5:1). The launcher
+  panel no longer flashes a white frame before the iframe paints, and the unread badge ring follows the
+  scheme instead of being hardcoded white.
+- `widget_theme.launcher_offset_x` / `launcher_offset_y` (px, default 20, clamped 0..200): distance from
+  the launcher to the screen edges. The panel (desktop) and the campaign preview follow the same offsets.
+
+### Fixed
+- Pre-chat validation no longer shifts the layout: the error line always reserves its row and only toggles
+  `visibility` (was `display:none`). Each input now points at its error with `aria-describedby`, carries
+  `aria-invalid`, and the error line is a `role="alert"`.
+- iOS keyboard no longer covers the composer: while the panel is open on a phone, it is pinned to
+  `window.visualViewport` (height + offsetTop) and released on close. Desktop and the compact campaign
+  preview are untouched.
+- iOS no longer zooms the page when an input is focused: inputs and the composer are 16px on phones
+  (14px from 481px up, matching the loader's mobile breakpoint). The composer grows to 120px (was 96px).
+- Notched phones: the header, composer, footer and launcher respect `env(safe-area-inset-*)`, so nothing
+  hides behind the home indicator or the status bar.
+- Typing/loading dots stop animating under `prefers-reduced-motion: reduce` (they stay visible, dimmed).
+- A logo (or campaign avatar) that fails to load is replaced by the brand/sender initial at the same size
+  instead of leaving a broken image. Campaign avatars now go through the same https-only check as
+  `logo_url`.
+
 ## [1.2.0] - 2026-09-04
 
 ### Fixed
@@ -75,7 +104,8 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/cluvix/livechat/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cluvix/livechat/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/cluvix/livechat/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/cluvix/livechat/compare/v1.0.0...v1.1.0

@@ -35,6 +35,8 @@ const LOG = '[cluvix-livechat]';
 const SET_USER_THROTTLE_MS = 2000; // story-08: chặn re-handshake storm khi partner gọi setUser liên tục
 const FRAME_ANIM_MS = 180; // story-08 AC5 — phải khớp transition trong shadowCss()
 const FRAME_HIDE_FALLBACK_MS = 250; // dự phòng khi transitionend không bắn (tab ẩn, reduced-motion…)
+const DEFAULT_OFFSET = 20; // px — khoảng cách mặc định nút mở chat tới mép (theme.launcher_offset_x/y)
+const DARK_RING = '#161b22'; // = --lc-bg chế độ tối trong app/styles.ts (vòng viền badge trên nền tối)
 
 /** Tên event public phát ra `window` (hợp đồng mở nguồn — arch §3.3). */
 type PublicEventName = 'ready' | 'opened' | 'closed' | 'message';
@@ -435,7 +437,7 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     if (frameWrap.classList.contains('lc-in')) return; // đã mở lại giữa chừng → huỷ việc ẩn
     frameWrap.hidden = true;
     frameWrap.classList.remove('lc-compact');
-    frameWrap.style.height = '';
+    unbindViewportFit(); // gỡ listener visualViewport + trả lại height/top/bottom cho CSS
   }
 
   frameWrap.addEventListener('transitionend', (ev) => {
@@ -443,6 +445,51 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     if (te.target !== frameWrap || te.propertyName !== 'transform') return;
     if (!frameWrap.classList.contains('lc-in')) finishHide();
   });
+
+  // ── v1.3.0: bàn phím ảo iOS che ô soạn tin ──
+  // Trên mobile khung chat là full-screen (top/bottom:0). Safari iOS KHÔNG thu nhỏ layout viewport khi bàn
+  // phím bật ⇒ nửa dưới khung (composer) nằm SAU bàn phím, gõ không thấy chữ. visualViewport cho biết
+  // phần thực sự nhìn thấy: ghim khung theo đúng vùng đó. Chỉ áp cho mobile + khung ĐANG mở đầy đủ —
+  // desktop và compact-preview giữ nguyên layout CSS.
+  let vvBound = false;
+
+  function clearViewportFit() {
+    frameWrap.style.height = '';
+    frameWrap.style.top = '';
+    frameWrap.style.bottom = '';
+  }
+
+  function syncViewportFit() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    if (!isOpen || !isMobile() || frameWrap.classList.contains('lc-compact')) {
+      // Xoay ngang / đổi cỡ cửa sổ khiến không còn là mobile → trả lại layout CSS ngay.
+      if (frameWrap.style.height || frameWrap.style.top) clearViewportFit();
+      return;
+    }
+    frameWrap.style.height = `${Math.round(vv.height)}px`;
+    frameWrap.style.top = `${Math.round(vv.offsetTop)}px`;
+    frameWrap.style.bottom = 'auto';
+  }
+
+  function bindViewportFit() {
+    const vv = window.visualViewport;
+    if (!vv || vvBound) return;
+    vvBound = true;
+    vv.addEventListener('resize', syncViewportFit);
+    vv.addEventListener('scroll', syncViewportFit);
+    syncViewportFit();
+  }
+
+  function unbindViewportFit() {
+    const vv = window.visualViewport;
+    if (vv && vvBound) {
+      vv.removeEventListener('resize', syncViewportFit);
+      vv.removeEventListener('scroll', syncViewportFit);
+    }
+    vvBound = false;
+    clearViewportFit();
+  }
 
   function showFullFrame() {
     const wasOpen = isOpen;
@@ -453,6 +500,7 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     frameWrap.classList.remove('lc-compact');
     frameWrap.style.height = '';
     showWrap();
+    if (isMobile()) bindViewportFit();
     launcher.classList.add('lc-open');
     launcher.setAttribute('aria-expanded', 'true');
     ensureIframe();
@@ -483,6 +531,7 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   // ── story B-05: compact-preview (widget đóng, hiện bong bóng nhỏ mời chat) ──
   function showCompactFrame(height: number) {
     ensureIframe();
+    unbindViewportFit(); // compact tự set height riêng — không để ghim theo visualViewport đè lên
     frameWrap.classList.add('lc-compact');
     frameWrap.style.height = `${Math.max(60, Math.round(height))}px`;
     showWrap(); // story-08 AC5: dùng chung đường hiện khung (fade+scale) — compact vẫn giữ layout riêng
@@ -495,7 +544,8 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
       return;
     }
     frameWrap.classList.remove('lc-compact');
-    frameWrap.style.height = '';
+    clearViewportFit();
+    if (isMobile()) bindViewportFit(); // quay lại khung đầy đủ đang mở → ghim lại theo visualViewport
   }
 
   // Focus vào iframe ngay khi mở (nội dung khung nằm trong document khác — không focus thì Tab tiếp theo
@@ -661,7 +711,16 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     // Nền nút = primary ĐÃ làm tối tới ngưỡng WCAG AA; chữ/outline = màu đối lập tính theo contrast thật.
     const strong = primaryStrong(theme.primary_color);
     const onPrimary = onPrimaryColor(strong);
-    style.textContent = shadowCss(theme.primary_color, theme.position === 'left', onPrimary, strong);
+    const scheme = theme.color_scheme === 'light' || theme.color_scheme === 'dark' ? theme.color_scheme : 'auto';
+    style.textContent = shadowCss(
+      theme.primary_color,
+      theme.position === 'left',
+      onPrimary,
+      strong,
+      scheme,
+      offsetPx(theme.launcher_offset_x),
+      offsetPx(theme.launcher_offset_y),
+    );
     const label = (theme.launcher_label || '').trim() || S.launcherDefault;
     launcherLabelEl.textContent = label; // textContent — theme là dữ liệu admin, không innerHTML
     launcher.setAttribute('aria-label', `${S.openChat}: ${label}`);
@@ -737,15 +796,41 @@ function chatIcon(): string {
   return `<svg class="lc-ic" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 3C6.5 3 2 6.8 2 11.5c0 2.3 1.1 4.3 2.9 5.8L4 21l4.3-1.6c1.1.3 2.4.5 3.7.5 5.5 0 10-3.8 10-8.4S17.5 3 12 3z"/></svg>`;
 }
 
-function shadowCss(primary = '#1677ff', left = false, onPrimary = '#fff', primaryStrongColor = primary): string {
-  const side = left ? 'left:20px;' : 'right:20px;';
-  const frameSide = left ? 'left:20px;' : 'right:20px;';
+/** Khoảng cách nút mở chat tới mép (px). Chỉ nhận số hữu hạn, clamp 0..200; thiếu/sai ⇒ mặc định 20. */
+function offsetPx(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(200, Math.max(0, Math.round(v))) : DEFAULT_OFFSET;
+}
+
+/**
+ * Vòng viền quanh badge unread: trước đây cứng `#fff` — trên trang nền tối (hoặc widget chạy chế độ tối)
+ * nó thành vành trắng lạc lõng. 'light'/'dark' ép cứng; 'auto' lấy #fff rồi để `prefers-color-scheme` của
+ * hệ điều hành đổi sang nền tối.
+ */
+function badgeRingCss(scheme: 'auto' | 'light' | 'dark'): string {
+  const ring = (c: string) => `box-shadow:0 0 0 2px ${c}`;
+  if (scheme === 'dark') return `.lc-badge{${ring(DARK_RING)}}`;
+  if (scheme === 'light') return `.lc-badge{${ring('#fff')}}`;
+  return `.lc-badge{${ring('#fff')}}
+@media (prefers-color-scheme: dark){.lc-badge{${ring(DARK_RING)}}}`;
+}
+
+function shadowCss(
+  primary = '#1677ff',
+  left = false,
+  onPrimary = '#fff',
+  primaryStrongColor = primary,
+  scheme: 'auto' | 'light' | 'dark' = 'auto',
+  offsetX = DEFAULT_OFFSET,
+  offsetY = DEFAULT_OFFSET,
+): string {
+  const side = left ? `left:${offsetX}px;` : `right:${offsetX}px;`;
+  const frameSide = side;
   // story-08 AC5: khung "nở ra" từ đúng góc đặt bubble (dưới-trái hoặc dưới-phải).
   const frameOrigin = left ? '0% 100%' : '100% 100%';
   return `
 :host{all:initial}
 *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
-.lc-launcher{position:fixed;bottom:20px;${side}height:52px;min-width:52px;padding:0 18px 0 14px;border-radius:26px;border:none;
+.lc-launcher{position:fixed;bottom:calc(${offsetY}px + env(safe-area-inset-bottom,0px));${side}height:52px;min-width:52px;padding:0 18px 0 14px;border-radius:26px;border:none;
   cursor:pointer;background:${primaryStrongColor};color:${onPrimary};display:flex;align-items:center;justify-content:center;gap:8px;
   font:600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;white-space:nowrap;
   box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .15s ease, box-shadow .15s ease}
@@ -757,9 +842,13 @@ function shadowCss(primary = '#1677ff', left = false, onPrimary = '#fff', primar
 .lc-launcher:hover{transform:scale(1.06);box-shadow:0 8px 26px rgba(0,0,0,.32)}
 .lc-launcher:active{transform:scale(.94)}
 .lc-badge{position:absolute;top:-2px;${left ? 'left:-2px;' : 'right:-2px;'}min-width:20px;height:20px;padding:0 5px;border-radius:10px;
-  background:#dc2626;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px #fff}
-.lc-frame-wrap{position:fixed;bottom:20px;${frameSide}width:350px;height:550px;max-height:calc(100vh - 40px);
-  border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:#fff;
+  background:#dc2626;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center}
+${badgeRingCss(scheme)}
+/* background TRANSPARENT (v1.3.0): nền trắng cứng ở đây nháy trắng 1 nhịp trước khi iframe vẽ xong — rõ
+   nhất ở chế độ tối. Nền thật do chính app trong iframe vẽ (--lc-bg). */
+.lc-frame-wrap{position:fixed;bottom:${offsetY}px;${frameSide}width:350px;height:550px;
+  max-height:calc(100vh - ${offsetY * 2}px);
+  border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:transparent;
   opacity:0;transform:scale(.92);transform-origin:${frameOrigin};
   transition:opacity ${FRAME_ANIM_MS}ms ease, transform ${FRAME_ANIM_MS}ms ease, width .15s ease, height .15s ease}
 /* story-08 AC5: .lc-in = trạng thái hiện. JS bỏ [hidden] → reflow → thêm .lc-in (mở); gỡ .lc-in rồi set
@@ -772,11 +861,11 @@ function shadowCss(primary = '#1677ff', left = false, onPrimary = '#fff', primar
    không chồng lên nhau tốn chỗ. Vì vậy KHÔNG có biến thể "nút thu về hình tròn" khi mở. */
 .lc-launcher.lc-open{display:none}
 /* compact-preview vẫn nổi PHÍA TRÊN nút (nút còn hiện vì widget chưa "mở") */
-.lc-frame-wrap.lc-compact{bottom:92px;width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
+.lc-frame-wrap.lc-compact{bottom:${offsetY + 72}px;width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
 @media (max-width:480px){
   .lc-frame-wrap{top:0;left:0;right:0;bottom:0;width:100%;height:100%;max-height:none;border-radius:0}
   /* compact-preview vẫn phải là card nhỏ nổi trên mobile, không được luật full-screen ở trên đè lên */
-  .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:92px!important;
+  .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:${offsetY + 72}px!important;
     width:auto!important;max-width:calc(100vw - 24px);height:auto!important;border-radius:14px!important}
 }
 /* story-08 AC5: tôn trọng cấu hình hệ điều hành — không animation, khung hiện/ẩn tức thì.

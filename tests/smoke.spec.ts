@@ -222,6 +222,145 @@ test.describe('pre-chat — phone_region INTL', () => {
   });
 });
 
+// v1.3.0 mục 1: widget_theme.color_scheme='dark' → app ép chế độ tối (không phụ thuộc OS của máy chạy test).
+test.describe('theme — color_scheme dark', () => {
+  test('data-lc-scheme="dark" trên <html> iframe + nền app KHÔNG phải trắng', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    await page.route(`${API}/session`, (route) =>
+      json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: 'test-jwt',
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          config: {
+            widget_theme: { ...THEME, color_scheme: 'dark' },
+            pre_chat_form: { ...PRE_CHAT_FORM, enabled: false },
+          },
+        },
+      }),
+    );
+    await page.route(`${API}/messages*`, (route) =>
+      json(route, { success: true, code: 200, message: '', data: [], timestamp: '' }),
+    );
+    await page.route(`${API}/sse*`, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: connected\ndata: {}\n\n' }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN }));
+    await page.locator('[data-cluvix-livechat] .lc-launcher').click();
+
+    const frame = page.frameLocator('iframe.lc-frame');
+    await expect(frame.locator('.lc-body')).toBeVisible(); // đã vào khung chat (theme đã áp)
+    await expect(frame.locator('html')).toHaveAttribute('data-lc-scheme', 'dark');
+
+    const bg = await frame.locator('.lc-app').evaluate((el) => getComputedStyle(el.ownerDocument.body).backgroundColor);
+    expect(bg).not.toBe('rgb(255, 255, 255)');
+    const bodyBg = await frame.locator('.lc-body').evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bodyBg).toBe('rgb(13, 17, 23)'); // --lc-surface tối
+  });
+});
+
+// v1.3.0 mục 2: lỗi pre-chat giữ chỗ sẵn (visibility) + a11y aria-invalid.
+test.describe('pre-chat — thiếu tên khi submit', () => {
+  test('.lc-err hiện (không đẩy layout) + input aria-invalid="true"', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    await page.route(`${API}/session`, (route) =>
+      json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: 'test-jwt',
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          config: { widget_theme: THEME, pre_chat_form: PRE_CHAT_FORM },
+        },
+      }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN }));
+    await page.locator('[data-cluvix-livechat] .lc-launcher').click();
+
+    const frame = page.frameLocator('iframe.lc-frame');
+    const nameInput = frame.locator('#lc-name');
+    const nameErr = frame.locator('#lc-name-err');
+    await expect(nameInput).toBeVisible();
+    // Trước khi lỗi: dòng lỗi ĐÃ chiếm chỗ (không display:none) nhưng chưa nhìn thấy → không gây CLS.
+    await expect(nameErr).toBeHidden();
+    expect(await nameErr.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(0);
+    await expect(nameInput).toHaveAttribute('aria-invalid', 'false');
+    await expect(nameInput).toHaveAttribute('aria-describedby', 'lc-name-err');
+
+    // Đường 1 — blur: rời ô tên khi còn rỗng.
+    await nameInput.click();
+    await frame.locator('#lc-phone').click();
+
+    await expect(nameErr).toBeVisible();
+    await expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    await expect(nameErr).toHaveAttribute('role', 'alert');
+
+    // Đường 2 — SUBMIT thật: nút bị disabled khi thiếu tên, nhưng Enter ở ô tin nhắn vẫn chạy trySubmit()
+    // (xem ui.ts) ⇒ phải đánh dấu lỗi đúng ô còn thiếu và KHÔNG submit.
+    await frame.locator('#lc-phone').fill('0912345678');
+    await frame.locator('#lc-message').fill('Tôi cần hỗ trợ.');
+    await expect(frame.locator('#lc-phone')).toHaveAttribute('aria-invalid', 'false');
+    await frame.locator('#lc-message').press('Enter');
+
+    await expect(nameErr).toBeVisible();
+    await expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    // Vẫn ở màn pre-chat (không vào khung chat) vì submit bị chặn.
+    await expect(frame.locator('.lc-prechat')).toBeVisible();
+  });
+});
+
+// v1.3.0 mục 7: launcher_offset_x/y đổi vị trí nút mở chat (px, clamp 0..200).
+test.describe('theme — launcher_offset_x/y', () => {
+  test('right=40px, bottom=60px theo cấu hình', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    await page.route(`${API}/session`, (route) =>
+      json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: 'test-jwt',
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          config: {
+            widget_theme: { ...THEME, launcher_offset_x: 40, launcher_offset_y: 60 },
+            pre_chat_form: { ...PRE_CHAT_FORM, enabled: false },
+          },
+        },
+      }),
+    );
+    await page.route(`${API}/messages*`, (route) =>
+      json(route, { success: true, code: 200, message: '', data: [], timestamp: '' }),
+    );
+    await page.route(`${API}/sse*`, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: connected\ndata: {}\n\n' }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN }));
+    const launcher = page.locator('[data-cluvix-livechat] .lc-launcher');
+    // Offset chỉ áp sau khi handshake trả theme (trước đó là default 20px) → mở chat rồi đóng lại.
+    await launcher.click();
+    await page.frameLocator('iframe.lc-frame').locator('.lc-body').waitFor();
+    await page.frameLocator('iframe.lc-frame').locator('.lc-x').click();
+    await expect(launcher).toBeVisible();
+
+    await expect
+      .poll(async () => launcher.evaluate((el) => getComputedStyle(el).right))
+      .toBe('40px');
+    expect(await launcher.evaluate((el) => getComputedStyle(el).bottom)).toBe('60px');
+  });
+});
+
 test.describe('smoke — data-host không hợp lệ (AC3)', () => {
   test('không mount widget + console.error nhắc data-host', async ({ page }) => {
     const consoleErrors: string[] = [];

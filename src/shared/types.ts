@@ -19,6 +19,17 @@ export interface WidgetTheme {
   subtitle?: string;
   /** v1.2.0 — locale UI ('vi' | 'en'). Optional: BE cũ chưa gửi field này ⇒ loader tự suy diễn (pickLocale). */
   locale?: Locale;
+  /**
+   * v1.3.0 — chế độ sáng/tối. 'auto' (mặc định) = theo `prefers-color-scheme` của hệ điều hành khách;
+   * 'light'/'dark' = ép cứng. Optional: BE cũ chưa gửi field này ⇒ coi như 'auto'.
+   */
+  color_scheme?: 'auto' | 'light' | 'dark';
+  /**
+   * v1.3.0 — khoảng cách nút mở chat tới mép màn hình, tính bằng px (x = mép trái/phải theo `position`,
+   * y = mép dưới). Mặc định 20, clamp 0..200, chỉ nhận số hữu hạn. Optional: BE cũ chưa gửi ⇒ 20.
+   */
+  launcher_offset_x?: number;
+  launcher_offset_y?: number;
 }
 
 /**

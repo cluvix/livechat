@@ -57,6 +57,13 @@ thẻ script — backend trả về trong `POST /session` và widget áp dụng 
 | `brand_name` | string | Tiêu đề header. Bỏ trống → `launcher_label`, rồi tới mặc định theo locale. |
 | `subtitle` | string | Dòng dưới tiêu đề. Bỏ trống → widget hiện trạng thái trực tuyến/ngoại tuyến. |
 | `locale` | `vi` \| `en` | Ngôn ngữ UI. Tuỳ chọn — xem [Locale](#locale-1) bên dưới. |
+| `color_scheme` | `auto` \| `light` \| `dark` | Chế độ sáng/tối. `auto` (mặc định) theo hệ điều hành của khách (`prefers-color-scheme`); `light`/`dark` ép cứng. Tuỳ chọn — thiếu field ⇒ `auto`. |
+| `launcher_offset_x` | number | Khoảng cách **px** từ nút mở chat tới mép trái/phải (theo `position`). Mặc định `20`, clamp `0..200`; giá trị không phải số hữu hạn ⇒ dùng mặc định. Khung chat (desktop) và bong bóng campaign dùng chung offset này. |
+| `launcher_offset_y` | number | Khoảng cách **px** từ nút mở chat tới mép dưới. Mặc định `20`, clamp `0..200`. Máy có tai thỏ được cộng thêm safe-area inset. |
+
+**Chế độ tối.** Mọi màu trung tính (nền, chữ, viền, ô nhập) đều là biến CSS và tự đổi sang bảng màu tối
+khi hệ điều hành của khách đang ở chế độ tối — không cần cấu hình gì. `color_scheme` chỉ dùng khi muốn ép
+khác đi. `primary_color` KHÔNG bị chế độ đổi màu: cả 2 bảng đều đi qua đúng luật contrast dưới đây.
 
 **Tự bảo đảm contrast.** `primary_color` chỉ giữ nguyên ở các chi tiết KHÔNG có chữ (viền focus,
 highlight). Với mọi bề mặt có chữ, widget làm tối màu theo bước 1% tới khi chữ trắng đạt 4.5:1, rồi chọn

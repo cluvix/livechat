@@ -56,6 +56,14 @@ script tag — the backend returns it in `POST /session` and the widget applies 
 | `brand_name` | string | Title in the header. Falls back to `launcher_label`, then a localized default. |
 | `subtitle` | string | Line under the title. When empty, the widget shows the live online/offline status instead. |
 | `locale` | `vi` \| `en` | UI language. Optional — see [Locale](#locale) below. |
+| `color_scheme` | `auto` \| `light` \| `dark` | Light/dark mode. `auto` (default) follows the visitor's operating system (`prefers-color-scheme`); `light`/`dark` force one. Optional — omitted means `auto`. |
+| `launcher_offset_x` | number | Distance in **px** from the launcher to the left/right edge (whichever `position` says). Default `20`, clamped to `0..200`; non-finite values fall back to the default. The panel (desktop) and the campaign preview follow the same offsets. |
+| `launcher_offset_y` | number | Distance in **px** from the launcher to the bottom edge. Default `20`, clamped to `0..200`. The safe-area inset of notched phones is added on top of it. |
+
+**Dark mode.** All neutral colours (backgrounds, text, borders, inputs) are CSS custom properties with a
+dark palette applied automatically when the visitor's OS asks for dark mode — nothing to configure.
+`color_scheme` only overrides that decision. `primary_color` is untouched by the mode: it keeps going
+through the same contrast rule below in both palettes.
 
 **Automatic contrast.** `primary_color` is used as-is only for details without text (focus ring,
 highlights). For any surface with text on it the widget darkens the colour in 1% steps until white text

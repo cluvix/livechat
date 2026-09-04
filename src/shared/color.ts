@@ -87,9 +87,13 @@ export function primaryStrong(hex: string): string {
   return base; // quá sáng để làm tối hợp lý → giữ gốc, chữ sẽ là #111827
 }
 
-/** Nền mờ 12% của primary (viền focus, highlight nhẹ). */
-export function primarySoft(hex: string): string {
+/**
+ * Nền mờ của primary (viền focus, highlight nhẹ). `alpha` mặc định .12 — chế độ tối cần đậm hơn (.28) vì
+ * cùng độ mờ đó gần như biến mất trên nền tối.
+ */
+export function primarySoft(hex: string, alpha = 0.12): string {
+  const a = String(alpha).replace(/^0/, ''); // .12 / .28 — bỏ số 0 thừa cho gọn bundle
   const rgb = hexToRgb(hex);
-  if (!rgb) return 'rgba(22,119,255,.12)';
-  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},.12)`;
+  if (!rgb) return `rgba(22,119,255,${a})`;
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
 }

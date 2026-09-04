@@ -101,7 +101,15 @@ export class WidgetUI {
     root.setProperty('--lc-primary', primary);
     root.setProperty('--lc-primary-strong', strong);
     root.setProperty('--lc-on-primary', onPrimaryColor(strong));
-    root.setProperty('--lc-primary-soft', primarySoft(primary));
+    // 2 mức alpha, KHÔNG set thẳng --lc-primary-soft: inline style luôn thắng stylesheet nên CSS sẽ không
+    // đổi được mức này theo chế độ tối. styles.ts chọn --lc-soft-12 (sáng) / --lc-soft-28 (tối).
+    root.setProperty('--lc-soft-12', primarySoft(primary, 0.12));
+    root.setProperty('--lc-soft-28', primarySoft(primary, 0.28));
+    // v1.3.0 — chế độ sáng/tối: 'light'/'dark' ép cứng qua data-lc-scheme; 'auto' (mặc định) gỡ thuộc tính
+    // để `@media (prefers-color-scheme)` của hệ điều hành quyết.
+    const scheme = theme.color_scheme;
+    if (scheme === 'light' || scheme === 'dark') document.documentElement.dataset.lcScheme = scheme;
+    else delete document.documentElement.dataset.lcScheme;
     this.timeFormatter = makeTimeFormatter(this.locale);
   }
 
@@ -144,23 +152,51 @@ export class WidgetUI {
   }
 
   private safeLogoUrl(): string | null {
-    const raw = (this.theme.logo_url || '').trim();
-    if (!raw) return null;
-    try {
-      const u = new URL(raw);
-      return u.protocol === 'https:' ? raw : null; // AC8 — chỉ https mới gán vào src
-    } catch {
-      return null;
-    }
+    return safeHttpsUrl(this.theme.logo_url);
+  }
+
+  /** Chữ cái đầu thương hiệu — dùng cho cả markup fallback lẫn fallback runtime khi ảnh lỗi tải. */
+  private brandInitial(): string {
+    return this.brandName().charAt(0).toUpperCase() || '?';
   }
 
   private logoHtml(size: number, solidFallback: boolean): string {
     const url = this.safeLogoUrl();
     const style = `width:${size}px;height:${size}px`;
-    if (url) return `<img class="lc-logo" style="${style}" src="${escapeAttr(url)}" alt=""/>`;
-    const initial = escapeText(this.brandName().charAt(0).toUpperCase() || '?');
-    const cls = solidFallback ? 'lc-logo lc-logo-fallback-solid' : 'lc-logo lc-logo-fallback';
-    return `<div class="${cls}" style="${style}">${initial}</div>`;
+    // data-lc-fb ghi lại kiểu fallback ĐÚNG NGỮ CẢNH (header nằm trên nền primary ⇒ nền mờ trắng; các chỗ
+    // khác ⇒ nền primary đặc) để listener 'error' dựng lại đúng khối khi URL logo hỏng.
+    if (url) {
+      return `<img class="lc-logo" style="${style}" src="${escapeAttr(url)}" alt="" data-lc-fb="${solidFallback ? 'solid' : 'soft'}"/>`;
+    }
+    return `<div class="${logoFallbackCls(solidFallback)}" style="${style}">${escapeText(this.brandInitial())}</div>`;
+  }
+
+  /**
+   * Logo hỏng (404, hotlink bị chặn, ảnh lỗi) → thay bằng khối chữ cái đầu CÙNG KÍCH THƯỚC, thay vì để lại
+   * ô ảnh vỡ. Gắn sau MỖI lần render có `<img class="lc-logo">` (header/pre-chat/avatar nhóm) và cho cả
+   * avatar campaign (.lc-preview-avatar). `{once:true}`: 1 ảnh chỉ thay 1 lần.
+   */
+  private wireImageFallbacks(scope: ParentNode = this.host, initialOverride?: string) {
+    const initial = initialOverride || this.brandInitial();
+    scope.querySelectorAll<HTMLImageElement>('img.lc-logo,img.lc-preview-avatar').forEach((img) => {
+      img.addEventListener(
+        'error',
+        () => {
+          const div = document.createElement('div');
+          if (img.classList.contains('lc-preview-avatar')) {
+            div.className = 'lc-preview-avatar lc-preview-avatar-fallback';
+          } else {
+            div.className = logoFallbackCls(img.dataset.lcFb !== 'soft');
+            // giữ nguyên class bổ sung do nơi gọi thêm vào (vd .lc-group-avatar cho avatar 24px)
+            if (img.classList.contains('lc-group-avatar')) div.classList.add('lc-group-avatar');
+          }
+          div.style.cssText = img.style.cssText; // cùng width/height với ảnh vừa hỏng
+          div.textContent = initial;
+          img.replaceWith(div);
+        },
+        { once: true },
+      );
+    });
   }
 
   private header(): string {
@@ -193,6 +229,7 @@ export class WidgetUI {
 
   private wireClose() {
     this.host.querySelector<HTMLButtonElement>('.lc-x')?.addEventListener('click', () => this.cb.onClose());
+    this.wireImageFallbacks(); // 4 màn (loading/offline/pre-chat/chat) đều đi qua đây sau khi set innerHTML
   }
 
   showLoading() {
@@ -257,9 +294,8 @@ export class WidgetUI {
       valid: (v: string) => boolean,
     ) => {
       if (!input) return;
-      const wrap = input.closest<HTMLElement>('.lc-field')!;
       input.addEventListener('input', updateBtn);
-      input.addEventListener('blur', () => wrap.classList.toggle('lc-invalid', !valid(input.value)));
+      input.addEventListener('blur', () => setInvalid(input, !valid(input.value)));
     };
     wireField(nameInput, nameValid);
     wireField(phoneInput, phoneValid);
@@ -269,10 +305,7 @@ export class WidgetUI {
       let ok = true;
       const check = (input: HTMLInputElement | HTMLTextAreaElement | null, valid: (v: string) => boolean) => {
         if (!input) return;
-        const wrap = input.closest<HTMLElement>('.lc-field')!;
-        const bad = !valid(input.value);
-        wrap.classList.toggle('lc-invalid', bad);
-        if (bad) ok = false;
+        if (setInvalid(input, !valid(input.value))) ok = false;
       };
       check(nameInput, nameValid);
       check(phoneInput, phoneValid);
@@ -303,7 +336,7 @@ export class WidgetUI {
    * set_compact_view). sender null → fallback avatar chữ cái đầu + tên site (OD-B5). */
   showCampaignPreview(campaign: CampaignPreview, siteFallbackName: string, cb: CampaignPreviewCallbacks): number {
     const name = (campaign.sender?.name || siteFallbackName || this.s.defaultBrand).trim() || this.s.defaultBrand;
-    const avatarUrl = campaign.sender?.avatar || '';
+    const avatarUrl = safeHttpsUrl(campaign.sender?.avatar); // chỉ https, cùng luật với logo_url (AC8)
     const avatarHtml = avatarUrl
       ? `<img class="lc-preview-avatar" src="${escapeAttr(avatarUrl)}" alt=""/>`
       : `<div class="lc-preview-avatar lc-preview-avatar-fallback">${escapeText(name.charAt(0).toUpperCase() || '?')}</div>`;
@@ -321,6 +354,7 @@ export class WidgetUI {
       cb.onDismiss();
     });
     this.host.querySelector<HTMLElement>('.lc-preview-body')!.addEventListener('click', () => cb.onClick());
+    this.wireImageFallbacks(this.host, name.charAt(0).toUpperCase() || '?'); // avatar campaign: chữ đầu TÊN người gửi
     const el = this.host.querySelector<HTMLElement>('.lc-preview')!;
     return el.getBoundingClientRect().height || 96;
   }
@@ -344,7 +378,7 @@ export class WidgetUI {
     const sync = () => {
       send.disabled = ta.value.trim().length === 0;
       ta.style.height = 'auto';
-      ta.style.height = Math.min(ta.scrollHeight, 96) + 'px';
+      ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; // khớp max-height:120px trong styles.ts
     };
     ta.addEventListener('input', () => {
       sync();
@@ -526,6 +560,7 @@ export class WidgetUI {
     wrap.innerHTML = this.logoHtml(24, true); // markup tự sinh (đã escape ở logoHtml) — an toàn gán innerHTML
     const el = wrap.firstElementChild as HTMLElement;
     el.classList.add('lc-group-avatar');
+    this.wireImageFallbacks(wrap);
     return el;
   }
 
@@ -576,13 +611,38 @@ export class WidgetUI {
 
 // ── helpers ──
 function field(id: string, label: string, type: string, ph: string, err: string, multiline = false): string {
+  // a11y: ô nhập trỏ tới dòng lỗi qua aria-describedby (dòng lỗi LUÔN tồn tại — chỉ ẩn/hiện bằng
+  // visibility, xem styles.ts) và mang aria-invalid khi sai; role="alert" để screen reader đọc lỗi.
+  const attrs = `id="${id}" aria-describedby="${id}-err" aria-invalid="false"`;
   const control = multiline
-    ? `<textarea id="${id}" rows="2" placeholder="${escapeAttr(ph)}"></textarea>`
-    : `<input id="${id}" type="${type}" placeholder="${escapeAttr(ph)}" autocomplete="${type === 'tel' ? 'tel' : 'name'}"/>`;
+    ? `<textarea ${attrs} rows="2" placeholder="${escapeAttr(ph)}"></textarea>`
+    : `<input ${attrs} type="${type}" placeholder="${escapeAttr(ph)}" autocomplete="${type === 'tel' ? 'tel' : 'name'}"/>`;
   return `<div class="lc-field" id="${id}-field">
     <label for="${id}">${escapeText(label)}</label>
     ${control}
-    <div class="lc-err">${escapeText(err)}</div></div>`;
+    <div class="lc-err" id="${id}-err" role="alert">${escapeText(err)}</div></div>`;
+}
+
+/** Bật/tắt trạng thái lỗi của 1 ô (class trên .lc-field + aria-invalid trên chính ô). Trả lại `bad`. */
+function setInvalid(input: HTMLInputElement | HTMLTextAreaElement, bad: boolean): boolean {
+  input.closest<HTMLElement>('.lc-field')?.classList.toggle('lc-invalid', bad);
+  input.setAttribute('aria-invalid', bad ? 'true' : 'false');
+  return bad;
+}
+
+/** URL ảnh chỉ chấp nhận https (AC8) — dùng cho logo_url và avatar campaign. */
+function safeHttpsUrl(raw: string | null | undefined): string | null {
+  const v = (raw || '').trim();
+  if (!v) return null;
+  try {
+    return new URL(v).protocol === 'https:' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function logoFallbackCls(solid: boolean): string {
+  return solid ? 'lc-logo lc-logo-fallback-solid' : 'lc-logo lc-logo-fallback';
 }
 function escapeText(s: string): string {
   const d = document.createElement('div');
