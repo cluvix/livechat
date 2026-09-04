@@ -28,6 +28,9 @@ import {
   type WidgetIdentity,
 } from './shared/types';
 
+/** Chữ trên nút mở chat khi admin chưa đặt theme.launcher_label (khai báo đầu file — start() chạy ngay lúc load). */
+const LAUNCHER_LABEL_DEFAULT = 'Tư vấn';
+
 const CAMPAIGNS_TTL_MS = 60 * 60 * 1000; // AC2: cache 1h theo siteKey
 const LOG = '[cluvix-livechat]';
 const SET_USER_THROTTLE_MS = 2000; // story-08: chặn re-handshake storm khi partner gọi setUser liên tục
@@ -319,7 +322,11 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   launcher.type = 'button';
   launcher.className = 'lc-launcher';
   launcher.setAttribute('aria-label', 'Mở khung chat');
-  launcher.innerHTML = `${chatIcon()}${closeIcon()}<span class="lc-badge" hidden></span>`;
+  // Pill icon + chữ (mặc định "Tư vấn", admin đổi qua theme.launcher_label) — chỉ icon thì khách không biết
+  // đó là gì. Khi khung đang mở chỉ còn nút X tròn.
+  launcher.innerHTML = `${chatIcon()}${closeIcon()}<span class="lc-launcher-label"></span><span class="lc-badge" hidden></span>`;
+  const launcherLabelEl = launcher.querySelector<HTMLSpanElement>('.lc-launcher-label')!;
+  launcherLabelEl.textContent = LAUNCHER_LABEL_DEFAULT;
   root.appendChild(launcher);
 
   const frameWrap = document.createElement('div');
@@ -608,9 +615,10 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   // ── theme + badge ──
   function applyThemeToLauncher(theme: WidgetTheme) {
     style.textContent = shadowCss(theme.primary_color, theme.position === 'left');
-    const label = (theme.launcher_label || '').trim();
-    launcher.setAttribute('aria-label', label || 'Mở khung chat');
-    launcher.title = label || '';
+    const label = (theme.launcher_label || '').trim() || LAUNCHER_LABEL_DEFAULT;
+    launcherLabelEl.textContent = label; // textContent — theme là dữ liệu admin, không innerHTML
+    launcher.setAttribute('aria-label', label);
+    launcher.title = label;
   }
 
   function renderBadge() {
@@ -691,9 +699,13 @@ function shadowCss(primary = '#1677ff', left = false): string {
   return `
 :host{all:initial}
 *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
-.lc-launcher{position:fixed;bottom:20px;${side}width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;
-  background:${primary};color:#fff;display:flex;align-items:center;justify-content:center;
-  box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .15s ease, box-shadow .15s ease;padding:0}
+.lc-launcher{position:fixed;bottom:20px;${side}height:52px;min-width:52px;padding:0 18px 0 14px;border-radius:26px;border:none;
+  cursor:pointer;background:${primary};color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;
+  font:600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;white-space:nowrap;
+  box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .15s ease, box-shadow .15s ease}
+.lc-launcher .lc-ic{width:22px;height:22px;flex:0 0 auto}
+.lc-launcher.lc-open{width:52px;padding:0;border-radius:50%}
+.lc-launcher.lc-open .lc-launcher-label{display:none}
 .lc-launcher:hover{transform:scale(1.06);box-shadow:0 8px 26px rgba(0,0,0,.32)}
 .lc-launcher:active{transform:scale(.94)}
 .lc-launcher .lc-ic-x{display:none}

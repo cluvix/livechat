@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-04
+
+### Changed
+- Launcher is now a pill with a text label (default "Tư vấn", configurable via `widget_theme.launcher_label`) instead of an icon-only circle; collapses to the round close button while the panel is open.
+- Send status ("Đang gửi…", "Gửi lỗi · chạm để thử lại") moved out of the visitor bubble to a small line below it; "Đã gửi" is merged into the group time line. Text inside the primary-colour bubble was hard to read.
+
 ### Added
 - README: HMAC identity examples for C#/.NET and Java (same test vector, Java verified on JDK 24).
 - Open-source release preparation: README (EN/VI), LICENSE, SECURITY, CONTRIBUTING, dev demo, package
@@ -46,5 +52,6 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/cluvix/livechat/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cluvix/livechat/releases/tag/v1.0.0

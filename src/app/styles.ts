@@ -50,8 +50,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Ar
   border-bottom-left-radius:4px;color:#111827}
 .lc-out .lc-bubble,.lc-group-row.lc-out .lc-bubble{background:var(--lc-primary);color:#fff;
   border-bottom-right-radius:4px}
-.lc-meta{font-size:11px;color:var(--lc-muted);margin-top:3px;text-align:right}
-.lc-out .lc-status{font-size:11px;opacity:.85}
+.lc-status{font-size:11px;color:var(--lc-muted);text-align:right;margin:2px 4px 0;line-height:1.3}
+.lc-status.lc-failed{color:#e5484d;cursor:pointer;text-decoration:underline dotted}
 .lc-bubble.lc-failed{background:#e5484d;cursor:pointer}
 .lc-typing{align-self:flex-start;background:#fff;border:1px solid var(--lc-line);border-radius:14px;
   border-bottom-left-radius:4px;padding:10px 14px;display:inline-flex;gap:4px;margin-top:10px}

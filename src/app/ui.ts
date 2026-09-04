@@ -441,18 +441,37 @@ export class WidgetUI {
     if (!out) row.appendChild(this.avatarEl());
     const col = document.createElement('div');
     col.className = 'lc-group-col';
-    for (const m of group) col.appendChild(this.bubble(m, out));
+    for (const m of group) {
+      col.appendChild(this.bubble(m, out));
+      // Trạng thái gửi nằm NGOÀI bong bóng (dưới, chữ nhỏ) — để trong bong bóng màu chủ đạo bị mờ, khó đọc.
+      // Chỉ hiện khi CHƯA gửi xong; "Đã gửi" gộp vào dòng giờ cuối nhóm cho gọn.
+      if (out && m.status !== 'sent') col.appendChild(this.statusEl(m));
+    }
     row.appendChild(col);
     wrap.appendChild(row);
 
     const last = group[group.length - 1];
     if (last.sentAt > 0) {
       const time = document.createElement('div');
-      time.className = `lc-group-time${out ? ' lc-out' : ''}`;
-      time.textContent = timeFormatter.format(new Date(last.sentAt)); // sent_at = MILLISECOND (gotcha #7)
+      time.className = `lc-group-time${out ? ' lc-out lc-status' : ''}`;
+      const hhmm = timeFormatter.format(new Date(last.sentAt)); // sent_at = MILLISECOND (gotcha #7)
+      time.textContent = out && last.status === 'sent' ? `${STRINGS.statusSent} · ${hhmm}` : hhmm;
       wrap.appendChild(time);
     }
     return wrap;
+  }
+
+  /** Dòng trạng thái dưới bong bóng của khách khi đang gửi / gửi lỗi (lỗi: chạm để thử lại). */
+  private statusEl(m: RenderMsg): HTMLElement {
+    const el = document.createElement('div');
+    el.className = `lc-status${m.status === 'failed' ? ' lc-failed' : ''}`;
+    el.textContent = m.status === 'sending' ? STRINGS.statusSending : STRINGS.statusFailed;
+    if (m.status === 'failed' && m.echoId) {
+      const echoId = m.echoId;
+      const text = m.content;
+      el.addEventListener('click', () => this.cb.onRetry(echoId, text));
+    }
+    return el;
   }
 
   private avatarEl(): HTMLElement {
@@ -472,13 +491,7 @@ export class WidgetUI {
       this.animatedKeys.add(key);
     }
     b.textContent = m.content; // XSS-safe
-    if (out) {
-      const meta = document.createElement('div');
-      meta.className = 'lc-meta lc-status';
-      meta.textContent =
-        m.status === 'sending' ? STRINGS.statusSending : m.status === 'failed' ? STRINGS.statusFailed : STRINGS.statusSent;
-      b.appendChild(meta);
-    }
+    void out;
     if (m.status === 'failed' && m.echoId) {
       const echoId = m.echoId;
       const text = m.content;
