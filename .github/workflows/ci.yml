@@ -5,7 +5,7 @@ name: CI
 # story-10), KHÔNG dùng tag `@vN` trần.
 #
 # ⚠ File này được viết cho `widget/` với vai trò REPO ROOT (package.json `repository` trỏ
-# github.com/cluvix/cluvix-livechat-widget — thư mục này sẽ tách thành repo mở nguồn riêng, xem
+# github.com/cluvix/livechat — thư mục này sẽ tách thành repo mở nguồn riêng, xem
 # CLAUDE.md §Layout). Vì vậy KHÔNG dùng `working-directory` — mọi lệnh chạy ngay ở root checkout.
 on:
   push:

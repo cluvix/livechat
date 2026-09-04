@@ -7,12 +7,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cluvix/cluvix-livechat-widget.git"
+    "url": "git+https://github.com/cluvix/livechat.git"
   },
   "bugs": {
-    "url": "https://github.com/cluvix/cluvix-livechat-widget/issues"
+    "url": "https://github.com/cluvix/livechat/issues"
   },
-  "homepage": "https://github.com/cluvix/cluvix-livechat-widget#readme",
+  "homepage": "https://github.com/cluvix/livechat#readme",
   "files": [
     "dist",
     "README.md",

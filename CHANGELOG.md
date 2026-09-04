@@ -44,5 +44,5 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/cluvix-livechat-widget/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/cluvix/cluvix-livechat-widget/releases/tag/v1.0.0
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/cluvix/livechat/releases/tag/v1.0.0

@@ -74,7 +74,7 @@ is *not* a submodule, so `git status` at the erp-cluvix root does not show it):
 
 ```bash
 # one-time: register the open-source repo as a remote
-git -C frontend remote add widget-oss git@github.com:<org>/cluvix-livechat-widget.git
+git -C frontend remote add widget-oss https://github.com/cluvix/livechat.git
 
 # bring public changes (external PRs, releases) into the monorepo
 git -C frontend subtree pull --prefix=widget widget-oss main --squash
