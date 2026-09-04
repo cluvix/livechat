@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- README: HMAC identity examples for C#/.NET and Java (same test vector, Java verified on JDK 24).
 - Open-source release preparation: README (EN/VI), LICENSE, SECURITY, CONTRIBUTING, dev demo, package
   metadata for standalone `npm install`.
 

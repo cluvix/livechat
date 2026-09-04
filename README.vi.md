@@ -160,6 +160,34 @@ hash_ = hmac.new(
 # => a63cb3bd204a755b540eda8a223d431f92f5aa347b397df1401e3901fdf6e659
 ```
 
+**C# / .NET**
+
+```csharp
+using System.Security.Cryptography;
+using System.Text;
+
+var key = Encoding.ASCII.GetBytes("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+using var hmac = new HMACSHA256(key);
+var hash = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes("user-42"))).ToLowerInvariant();
+// => a63cb3bd204a755b540eda8a223d431f92f5aa347b397df1401e3901fdf6e659
+```
+
+**Java**
+
+```java
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.util.HexFormat;
+
+Mac mac = Mac.getInstance("HmacSHA256");
+mac.init(new SecretKeySpec(
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.US_ASCII),
+    "HmacSHA256"));
+String hash = HexFormat.of().formatHex(mac.doFinal("user-42".getBytes(StandardCharsets.UTF_8)));
+// => a63cb3bd204a755b540eda8a223d431f92f5aa347b397df1401e3901fdf6e659
+```
+
 > Key HMAC là **chuỗi ASCII** của secret (64 ký tự như đã cấp), KHÔNG phải 32 byte giải mã từ hex — lỗi
 > thường gặp khi chuyển đổi giữa các ngôn ngữ.
 
