@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-04
+
+### Changed
+
+- Internal refactor only — no behavior change. The public contract is untouched: CSS class names, ARIA
+  attributes, every user-visible string, the `UiCallbacks` shape and every `WidgetUI` method `main.ts`
+  calls are byte-identical, as is the XSS discipline (`textContent` / `escapeText` / `escapeAttr` /
+  https-only image URLs).
+- `src/app/ui.ts` (692 lines, a single ~550-line `WidgetUI` class) is now a ~190-line facade over
+  `src/app/ui/`: `types.ts` (`UiCallbacks`, `CampaignPreviewCallbacks`, `RenderMsg`), `markup.ts`
+  (escaping, https URL filter, SVG icons, the pre-chat `field()` builder, app CSS injection), `brand.ts`
+  (brand name/initial, logo, image-error fallbacks, header and footer markup — pure functions taking
+  `theme`/`strings`), `prechat.ts` (`PreChatView` + `isValidPhone`/`setInvalid`), `chat-list.ts`
+  (`ChatList`: message state, grouping, bubbles, time/status line, retry button, typing indicator,
+  `aria-live` region), `composer.ts` (`Composer` + `focusComposer`) and `preview.ts` (campaign
+  compact-preview). `WidgetUI` keeps theming and screen assembly and delegates the rest.
+
 ## [1.3.3] - 2026-09-04
 
 ### Changed
@@ -161,7 +178,8 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.3...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.4...HEAD
+[1.3.4]: https://github.com/cluvix/livechat/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/cluvix/livechat/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/cluvix/livechat/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/cluvix/livechat/compare/v1.3.0...v1.3.1
