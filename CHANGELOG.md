@@ -7,6 +7,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-04
+
+### Security
+
+- The iframe app (`main.ts`) accepted any `postMessage` whose `event.source === window.parent`, without
+  checking `event.origin` — a page embedding `widget.html` in its own (different) iframe could impersonate
+  the loader. It now locks a `trustedOrigin` from the first valid message's `event.origin` and rejects any
+  later message from a different origin; outgoing `postMessage` calls never use `'*'` — before an origin is
+  known, only the initial `ready` handshake is allowed a `document.referrer`-derived guess, and is skipped
+  entirely when there is no referrer.
+- `visitor_token` no longer sits in `localStorage` indefinitely. Sites with `pre_chat_form.enabled` now
+  store it in `sessionStorage` (per-tab — a shared computer no longer resumes a previous visitor's medical
+  conversation); sites without pre-chat keep `localStorage` but the entry now expires after 30 days. The
+  iframe's own "pre-chat done" flag (`cluvix_lc_prechat_*`) follows the same rule.
+- `sse.ts` now reacts to the backend's `expired` SSE event (sent right before it closes the connection on
+  JWT expiry) by re-handshaking immediately, instead of waiting for two consecutive `onerror` failures. The
+  backend's periodic `:ping` heartbeat comment needs no handling — `EventSource` ignores it per spec.
+
 ## [1.3.1] - 2026-09-04
 
 ### Fixed
@@ -121,7 +139,8 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/cluvix/livechat/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/cluvix/livechat/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/cluvix/livechat/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cluvix/livechat/compare/v1.1.1...v1.2.0

@@ -2,6 +2,11 @@
 // lỡ trong lúc mất kết nối — AC4). JWT hết hạn không đọc được status qua EventSource → nếu lỗi LIÊN TIẾP
 // trước khi kịp 'connected' → yêu cầu re-handshake (main xin loader cấp JWT mới; backoff sau đó tự dùng
 // JWT mới vì sseUrl() đọc state.jwt tại thời điểm connect).
+//
+// BE gửi heartbeat `:ping` định kỳ dạng SSE comment (dòng bắt đầu `:`) — EventSource tự bỏ qua theo spec,
+// KHÔNG cần xử lý gì ở đây. BE cũng gửi event `expired` NGAY TRƯỚC khi tự đóng kết nối lúc JWT hết hạn —
+// tín hiệu này chắc chắn hơn suy đoán qua `onerror` liên tiếp nên xin re-handshake NGAY, không đợi đủ
+// FAILS_BEFORE_REHANDSHAKE lần lỗi (main.ts requestHandshake() đã tự dedupe các lời gọi trong 1.5s).
 import { sseUrl } from './api';
 import type { WidgetMessage } from '../shared/types';
 
@@ -85,6 +90,9 @@ export class SseManager {
     });
 
     es.addEventListener('staff_typing', () => this.hooks.onStaffTyping());
+
+    // JWT hết hạn: BE báo trước rồi mới đóng — xin JWT mới NGAY, không đợi onerror đếm đủ lần.
+    es.addEventListener('expired', () => this.hooks.onNeedRehandshake());
 
     es.onerror = () => {
       // EventSource tự retry nội bộ nhưng KHÔNG đổi được URL/JWT → tự quản lý: đóng + backoff thủ công.

@@ -368,6 +368,12 @@ Xem [SECURITY.md](./SECURITY.md) để biết cách báo lỗi bảo mật. Tóm
   rỉ từ trang partner) có thể mở hội thoại của khách đó cho tới khi secret được xoay. Đừng log hay để lộ
   hash ở bất cứ đâu không cần thiết.
 - Mọi lỗi handshake trả về đúng 1 mã 403 chung chung (không có oracle để dò site/identity).
+- `postMessage` giữa loader và iframe bị khoá theo origin: iframe chỉ tin origin của message hợp lệ đầu
+  tiên nhận được, không bao giờ post tới `'*'`.
+- `visitor_token` lưu ở `sessionStorage` (theo tab) khi `pre_chat_form.enabled` bật; ngược lại vẫn lưu
+  `localStorage` nhưng hết hạn sau 30 ngày.
+- Kênh realtime gửi heartbeat comment `:ping` và event `expired` trước khi đóng lúc JWT hết hạn, để widget
+  xin cấp lại JWT ngay thay vì phải đoán qua lỗi kết nối.
 
 ## License
 

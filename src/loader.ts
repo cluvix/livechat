@@ -9,7 +9,9 @@
 //
 // Loader chịu trách nhiệm: bubble + iframe container (Shadow DOM cô lập CSS), là "session broker" (mọi
 // handshake — mở đầu / pre-chat / refresh JWT hết hạn), unread badge, lưu visitor_token + trạng thái mở.
-// KHÔNG analytics/cookie bên thứ 3; localStorage chỉ visitor_token + open state + cache config (AC).
+// KHÔNG analytics/cookie bên thứ 3; localStorage chỉ open state + cache config (AC) + visitor_token (site
+// KHÔNG pre-chat, hết hạn 30 ngày — M5). Site CÓ pre-chat: visitor_token lưu sessionStorage (phiên tab —
+// máy dùng chung không đọc lại hội thoại y tế của người trước qua resume token còn sót lại).
 //
 // story-08: loader còn là chủ của HỢP ĐỒNG MỞ NGUỒN với trang khách — `data-host` (tách origin backend khỏi
 // origin phục vụ widget.js), `window.cluvixChat` (open/close/toggle/setUser/on/off) và CustomEvent
@@ -31,6 +33,7 @@ import {
 } from './shared/types';
 
 const CAMPAIGNS_TTL_MS = 60 * 60 * 1000; // AC2: cache 1h theo siteKey
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // M5: token ẩn danh (site KHÔNG pre-chat) hết hạn sau 30 ngày
 const LOG = '[cluvix-livechat]';
 const SET_USER_THROTTLE_MS = 2000; // story-08: chặn re-handshake storm khi partner gọi setUser liên tục
 const FRAME_ANIM_MS = 180; // story-08 AC5 — phải khớp transition trong shadowCss()
@@ -174,6 +177,71 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
       /* private mode: bỏ qua, widget vẫn chạy phiên hiện tại */
     }
   };
+  const lsRemove = (k: string) => {
+    try {
+      window.localStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  };
+  const ssGet = (k: string): string | null => {
+    try {
+      return window.sessionStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  };
+  const ssSet = (k: string, v: string) => {
+    try {
+      window.sessionStorage.setItem(k, v);
+    } catch {
+      /* private mode */
+    }
+  };
+  const ssRemove = (k: string) => {
+    try {
+      window.sessionStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // ── M5: visitor_token — site có pre-chat bật lưu ở sessionStorage (phiên tab; máy dùng chung không đọc
+  // lại hội thoại y tế của người trước qua resume token). Site KHÔNG pre-chat vẫn dùng localStorage (tiện
+  // resume qua nhiều phiên trình duyệt) nhưng có hạn 30 ngày, ghi kèm `ts`. Đọc: chưa biết site có pre-chat
+  // hay chưa (chạy TRƯỚC khi handshake trả config) nên thử sessionStorage trước, rồi localStorage (kèm
+  // check TTL); tương thích ngược đọc được cả giá trị cũ dạng chuỗi trần (trước bản vá này, không có `ts`).
+  function readLocalToken(): string | null {
+    const raw = lsGet(LS_TOKEN);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { token?: string; ts?: number };
+      if (parsed && typeof parsed.token === 'string') {
+        if (typeof parsed.ts === 'number' && Date.now() - parsed.ts > TOKEN_TTL_MS) {
+          lsRemove(LS_TOKEN);
+          return null;
+        }
+        return parsed.token;
+      }
+    } catch {
+      return raw; // chuỗi trần cũ (trước bản vá) — chưa có ts, không tự xoá dữ liệu hợp lệ trước đó
+    }
+    return null;
+  }
+
+  function readSavedToken(): string | null {
+    return ssGet(LS_TOKEN) || readLocalToken();
+  }
+
+  function writeToken(token: string, preChatEnabled: boolean) {
+    if (preChatEnabled) {
+      ssSet(LS_TOKEN, token);
+      lsRemove(LS_TOKEN); // site vừa đổi sang bật pre-chat — dọn token cũ còn ở localStorage
+    } else {
+      lsSet(LS_TOKEN, JSON.stringify({ token, ts: Date.now() }));
+      ssRemove(LS_TOKEN);
+    }
+  }
 
   // ── state ──
   let session: SessionData | null = null;
@@ -579,7 +647,7 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     // đang dùng để cuối lượt tự handshake bù, tránh phiên "kẹt" ở identity cũ mà không ai kích lại.
     const usedIdentifier = identity ? identity.identifier : null;
     try {
-      const token = lsGet(LS_TOKEN) || undefined;
+      const token = readSavedToken() || undefined;
       const body: Record<string, unknown> = { site_key: siteKey };
       // story-08 AC2: có identity → gửi identity, KHÔNG gửi visitor_token. BE cũng bỏ qua token khi có
       // identity (arch §3.2 bước 4 — chống nhảy sang hội thoại ẩn danh bằng identity), loader không gửi
@@ -603,10 +671,12 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
       }
       lastError = null;
       session = env.data;
-      // story-08: KHÔNG lưu visitor_token của phiên ĐÃ XÁC THỰC vào localStorage — token đó resume được
-      // hội thoại có danh tính; máy dùng chung / partner logout mà token còn nằm lại là rò hội thoại.
-      // Phiên identity resume bằng chính identifier (BE tra `idv:` — arch §3.2 bước 4), không cần token.
-      if (!identity) lsSet(LS_TOKEN, session.visitor_token);
+      // story-08: KHÔNG lưu visitor_token của phiên ĐÃ XÁC THỰC vào localStorage/sessionStorage — token đó
+      // resume được hội thoại có danh tính; máy dùng chung / partner logout mà token còn nằm lại là rò hội
+      // thoại. Phiên identity resume bằng chính identifier (BE tra `idv:` — arch §3.2 bước 4), không cần
+      // token. M5(b): BE có thể trả visitor_token MỚI khác token đã gửi (vd site đổi chính sách) — luôn ghi
+      // đè vô điều kiện, không so sánh với token cũ.
+      if (!identity) writeToken(session.visitor_token, session.config?.pre_chat_form?.enabled === true);
       lsSet(LS_CFG, JSON.stringify(session.config || {}));
       const themeCfg = session.config?.widget_theme;
       // Locale của theme (nếu admin đặt) thắng — phải chốt TRƯỚC khi trộn default, vì greeting/offline

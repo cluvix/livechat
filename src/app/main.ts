@@ -1,6 +1,16 @@
 // Iframe app entry (widget.html). Nhận session (jwt/config) TỪ loader qua postMessage (loader mới có
 // đúng Origin website khách để handshake — xem loader.ts). Ở đây: pre-chat form → khung chat (history,
 // optimistic send, SSE, typing), refresh JWT khi hết hạn, đếm unread báo loader.
+//
+// MÔ HÌNH TIN CẬY postMessage (M3): widget.html serve công khai — KHÔNG có gì ngăn một trang lạ tự nhúng
+// nó trong iframe của CHÍNH HỌ (khác iframe do loader.ts dựng) rồi giả làm loader để đọc trộm dữ liệu
+// (pre-chat name/phone, JWT...) hoặc bơm message giả. `ev.source === window.parent` KHÔNG đủ — trang lạ
+// nhúng widget.html cũng có `window.parent` trỏ đúng chính nó. Vì vậy: message ĐẦU TIÊN hợp lệ (đúng
+// source + đúng channel) nhận được sau boot() chốt `trustedOrigin` từ `ev.origin` của chính nó; mọi
+// message sau đó phải cùng origin, khác thì bỏ qua im lặng. Chiều ngược lại (post → loader) KHÔNG BAO GIỜ
+// dùng `'*'`: trước khi biết `trustedOrigin`, chỉ message `ready` (không mang dữ liệu nhạy cảm) được phép
+// đi kèm phỏng đoán origin từ `document.referrer` — thiếu referrer thì im lặng không gửi, tuyệt đối không
+// rò `pre_chat`/JWT/session ra một trang lạ qua `'*'`.
 import { WIDGET_CHANNEL, type IframeToLoader, type LoaderToIframe } from '../shared/protocol';
 import { applySession, markPreChatDone, preChatDone, state } from './store';
 import { fetchMessages, sendMessage, sendTyping, triggerCampaign } from './api';
@@ -20,7 +30,10 @@ state.siteKey = (params.get('site_key') || '').trim();
 // loader/BE cũ không gửi field đó ⇒ giữ nguyên phỏng đoán này.
 applyLocale(pickLocale({ navigatorLang: navigator.language }));
 
-const parentOrigin = referrerOrigin();
+// M3: chỉ dùng để bootstrap post({type:'ready'}) LẦN ĐẦU khi chưa có message nào từ loader (xem post()).
+// Sau đó `trustedOrigin` (chốt từ ev.origin message hợp lệ đầu tiên) mới là nguồn sự thật cho mọi post().
+const referrerGuess = referrerOrigin();
+let trustedOrigin: string | null = null;
 const appRoot = document.getElementById('app') || document.body;
 
 let ui: WidgetUI;
@@ -102,6 +115,10 @@ function onLoaderMessage(ev: MessageEvent) {
   if (ev.source !== window.parent) return; // chỉ nhận từ cửa sổ cha (loader)
   const msg = ev.data as LoaderToIframe;
   if (!msg || msg.channel !== WIDGET_CHANNEL) return;
+  // M3: message hợp lệ (đúng source + đúng channel) ĐẦU TIÊN chốt origin loader thật — mọi message sau đó
+  // phải cùng origin đó, không tin '*'/origin đổi giữa chừng (trang lạ chèn iframe/khung khác cố giả loader).
+  if (trustedOrigin === null) trustedOrigin = ev.origin;
+  else if (ev.origin !== trustedOrigin) return;
   switch (msg.type) {
     case 'session': {
       // story-08 AC3: loader gọi setUser() ⇒ re-handshake ⇒ BE trả conversation_id KHÁC. Lịch sử/optimistic
@@ -375,8 +392,14 @@ function requestHandshake() {
 }
 
 // ── utils ──
+// M3: KHÔNG BAO GIỜ '*'. Đã biết trustedOrigin (chốt ở onLoaderMessage) → luôn dùng nó. Chưa biết (trước
+// khi nhận được message nào từ loader) → CHỈ 'ready' được phép đi kèm phỏng đoán origin từ document.referrer
+// (bootstrap 1 lần, không mang dữ liệu nhạy cảm); referrer trống hoặc message khác 'ready' → im lặng bỏ qua
+// thay vì rò dữ liệu (pre_chat name/phone, unread, staff_message...) ra một trang lạ nhúng widget.html.
 function post(msg: IframeToLoader) {
-  window.parent.postMessage(msg, parentOrigin || '*');
+  const target = trustedOrigin ?? (msg.type === 'ready' ? referrerGuess : '');
+  if (!target) return;
+  window.parent.postMessage(msg, target);
 }
 
 function referrerOrigin(): string {

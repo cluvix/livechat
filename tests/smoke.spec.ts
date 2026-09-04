@@ -428,3 +428,77 @@ test.describe('smoke — setUser identity + 403 offline (AC4)', () => {
     expect(messagesCalled).toBe(false);
   });
 });
+
+// M5(a)/(c) — site có pre-chat bật: visitor_token phải nằm ở sessionStorage (trang khách, nơi loader.ts
+// chạy), KHÔNG rơi vào localStorage (máy dùng chung không đọc lại hội thoại y tế của người trước).
+test.describe('M5 — visitor_token storage theo pre-chat', () => {
+  test('pre-chat bật → token vào sessionStorage của trang khách, không vào localStorage', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    await page.route(`${API}/session`, (route) =>
+      json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: 'test-jwt',
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          config: { widget_theme: THEME, pre_chat_form: PRE_CHAT_FORM }, // enabled: true
+        },
+      }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN }));
+    // open() gọi ensureSession() ngay — không cần submit form pre-chat để có visitor_token.
+    await page.locator('[data-cluvix-livechat] .lc-launcher').click();
+
+    await expect
+      .poll(() => page.evaluate(() => window.sessionStorage.getItem('cluvix_lc_token_test-site')))
+      .toBe('test-visitor-token');
+    expect(await page.evaluate(() => window.localStorage.getItem('cluvix_lc_token_test-site'))).toBeNull();
+  });
+});
+
+// story-18/M3 mục 3 — BE gửi event `expired` qua SSE trước khi tự đóng kết nối lúc JWT hết hạn: sse.ts
+// phải xin re-handshake NGAY (không đợi 2 lỗi liên tiếp của onerror).
+test.describe('SSE — event expired kích re-handshake ngay', () => {
+  test('nhận `expired` qua SSE → có request /session thứ 2 (re-handshake)', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    let sessionCalls = 0;
+    await page.route(`${API}/session`, (route) => {
+      sessionCalls++;
+      return json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: `test-jwt-${sessionCalls}`,
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          config: { widget_theme: THEME, pre_chat_form: { ...PRE_CHAT_FORM, enabled: false } },
+        },
+      });
+    });
+    await page.route(`${API}/messages*`, (route) =>
+      json(route, { success: true, code: 200, message: '', data: [], timestamp: '' }),
+    );
+    await page.route(`${API}/sse*`, (route) =>
+      // 'connected' rồi 'expired' ngay trong cùng response (giả lập BE đóng kết nối ngay sau khi báo hết hạn).
+      route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'event: connected\ndata: {}\n\nevent: expired\ndata: {}\n\n',
+      }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN }));
+    await page.locator('[data-cluvix-livechat] .lc-launcher').click();
+
+    await expect.poll(() => sessionCalls).toBe(1);
+    // SSE mock trả 'expired' ngay khi kết nối → sse.ts gọi onNeedRehandshake() → main.ts post('handshake')
+    // → loader xoá session cũ, handshake lại → request /session thứ 2.
+    await expect.poll(() => sessionCalls, { timeout: 10000 }).toBeGreaterThanOrEqual(2);
+  });
+});

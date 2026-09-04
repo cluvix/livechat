@@ -369,6 +369,12 @@ See [SECURITY.md](./SECURITY.md) for how to report a vulnerability. In short:
   pair (e.g. via a leak on the partner site) can open that visitor's conversation until the secret is
   rotated. Don't log or expose the hash anywhere it doesn't need to be.
 - All handshake failures return one generic 403 (no oracle for enumerating sites/identities).
+- `postMessage` between the loader and the iframe is origin-locked: the iframe trusts only the origin of
+  the first valid message it receives and never posts to `'*'`.
+- `visitor_token` lives in `sessionStorage` (per-tab) when `pre_chat_form.enabled` is true; otherwise it
+  stays in `localStorage` but expires after 30 days.
+- The realtime stream sends a `:ping` heartbeat comment and an `expired` event before closing on JWT
+  expiry, so the widget re-handshakes immediately instead of guessing from connection errors.
 
 ## License
 
