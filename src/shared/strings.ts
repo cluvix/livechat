@@ -85,7 +85,7 @@ export const DICTS: Record<Locale, Dict> = {
     themeGreeting: 'Xin chào! Chúng tôi có thể giúp gì cho bạn?',
     themeOffline: 'Hiện không có nhân viên trực tuyến, để lại tin nhắn nhé!',
     footerHtml:
-      'Cung cấp bởi <a href="https://cluvixhealth.vn" target="_blank" rel="noopener noreferrer">CluvixHealth</a>',
+      'Cung cấp bởi <a href="https://cluvixsolutions.com" target="_blank" rel="noopener noreferrer">CluvixHealth</a>',
   },
   en: {
     close: 'Close',
@@ -120,7 +120,7 @@ export const DICTS: Record<Locale, Dict> = {
     themeGreeting: 'Hi there! How can we help you?',
     themeOffline: 'No agent is online right now — leave us a message!',
     footerHtml:
-      'Powered by <a href="https://cluvixhealth.vn" target="_blank" rel="noopener noreferrer">CluvixHealth</a>',
+      'Powered by <a href="https://cluvixsolutions.com" target="_blank" rel="noopener noreferrer">CluvixHealth</a>',
   },
 };
 

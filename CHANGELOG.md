@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-09-04
+
+### Changed
+- Footer link and all contact points now go to cluvixsolutions.com (CluvixHealth is a Cluvix Solutions product); security contact is contact@cluvixsolutions.com.
+
 ## [1.3.4] - 2026-09-04
 
 ### Changed
@@ -178,7 +183,8 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.4...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.5...HEAD
+[1.3.5]: https://github.com/cluvix/livechat/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/cluvix/livechat/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/cluvix/livechat/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/cluvix/livechat/compare/v1.3.1...v1.3.2

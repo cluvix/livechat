@@ -9,7 +9,7 @@ Please **do not** open a public GitHub issue for a security vulnerability.
 
 Instead, report it privately through either channel:
 
-- Email **security@cluvixhealth.vn** with a description of the issue, steps to reproduce, and (if
+- Email **contact@cluvixsolutions.com** with a description of the issue, steps to reproduce, and (if
   possible) the affected version/commit.
 - Or open a [GitHub private security advisory](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability)
   on this repository, once it is public — this notifies maintainers without disclosing the issue

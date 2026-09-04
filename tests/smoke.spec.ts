@@ -142,7 +142,7 @@ test.describe('smoke — mở/đóng, pre-chat, gửi/nhận tin, footer (AC2)',
     // Footer bắt buộc (story-07 AC6).
     const footerLink = frame.locator('.lc-footer a');
     await expect(footerLink).toHaveText('CluvixHealth');
-    await expect(footerLink).toHaveAttribute('href', 'https://cluvixhealth.vn');
+    await expect(footerLink).toHaveAttribute('href', 'https://cluvixsolutions.com');
     await expect(footerLink).toHaveAttribute('rel', 'noopener noreferrer');
     // Khoảng trắng giữa "Cung cấp bởi" và link phải còn (footer KHÔNG dùng flex — v1.2.0 mục 1).
     await expect(frame.locator('.lc-footer')).toContainText('Cung cấp bởi CluvixHealth');
