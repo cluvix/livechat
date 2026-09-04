@@ -326,6 +326,49 @@ identity mà thiếu, site chưa bật identity, sai định dạng hash, sai ch
 điệp lỗi 403 chung chung — đây là chủ đích, để endpoint không thể bị dùng để dò xem `site_key` nào tồn
 tại hay site nào đã bật identity.
 
+## Cấu trúc mã nguồn
+
+Hai bundle độc lập dùng chung `src/shared/`:
+
+```
+src/
+├─ loader.ts            entry → widget.js (IIFE chạy trên trang khách; nơi duy nhất làm handshake)
+├─ loader/
+│  ├─ bootstrap.ts      đọc data-*, validate data-host, identity attrs
+│  ├─ state.ts          một object LoaderState duy nhất (chốt locale/theme)
+│  ├─ session.ts        handshake (/session), resume token (sessionStorage / localStorage + TTL), setUser
+│  ├─ frame-dom.ts      Shadow DOM host, nút launcher, khung iframe
+│  ├─ frame.ts          mở/đóng, compact preview, quản lý focus, mount iframe
+│  ├─ frame-anim.ts     animation mở/đóng + prefers-reduced-motion
+│  ├─ viewport.ts       bám visualViewport khi bàn phím mobile bật
+│  ├─ theme.ts          nhãn/màu launcher, badge chưa đọc
+│  ├─ css.ts            CSS trong shadow, vòng badge, offset launcher
+│  ├─ bridge.ts         postMessage ↔ iframe (khoá origin), phát CustomEvent
+│  ├─ api.ts            window.cluvixChat (open/close/toggle/setUser/on/off) + hàng đợi trước ready
+│  ├─ campaigns-bridge.ts  tải/cache campaign + theo dõi URL SPA
+│  ├─ storage.ts, constants.ts, types.ts
+├─ app/
+│  ├─ main.ts           entry → widget.html (app trong iframe): phiên, lịch sử, gửi optimistic, SSE
+│  ├─ ui.ts             facade WidgetUI (CSS var theme, các màn hình)
+│  ├─ ui/
+│  │  ├─ chat-list.ts   nhóm tin, trạng thái gửi, typing, vùng sr-live, gửi lại
+│  │  ├─ prechat.ts     form pre-chat (tên / SĐT / tin nhắn) + validate
+│  │  ├─ composer.ts    ô nhập + nút gửi
+│  │  ├─ preview.ts     compact preview của campaign
+│  │  ├─ brand.ts       markup logo / avatar / header / footer (hàm thuần)
+│  │  ├─ markup.ts      escapeText / escapeAttr / safeHttpsUrl, icon, field builder, inject CSS
+│  │  └─ types.ts
+│  ├─ api.ts, sse.ts, store.ts, campaigns.ts, styles.ts
+└─ shared/
+   ├─ strings.ts        từ điển vi / en + suy diễn locale (cả 2 bundle dùng)
+   ├─ color.ts          helper contrast WCAG (màu chữ trên primary, primary tự tối)
+   ├─ protocol.ts       giao thức postMessage loader ↔ iframe
+   └─ types.ts          shape theme / pre-chat / session (khớp backend)
+```
+
+Nguyên tắc: thứ chạy trên trang khách nằm ở `loader/`; thứ chạy trong iframe nằm ở `app/`; không chuỗi
+hiển thị nào nằm ngoài `shared/strings.ts`; mọi chuỗi ra DOM đều qua `textContent` hoặc `escapeText`/`escapeAttr`.
+
 ## Build
 
 ```bash

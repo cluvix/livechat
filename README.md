@@ -327,6 +327,50 @@ required but missing, identity disabled on the site, bad hash format, wrong sign
 **same** generic 403 message — this is deliberate, so the endpoint can't be used to probe which
 `site_key`s exist or whether identity is enabled on a given site.
 
+## Project structure
+
+Two independent bundles share `src/shared/`:
+
+```
+src/
+├─ loader.ts            entry → widget.js (IIFE on the customer page; the only session broker)
+├─ loader/
+│  ├─ bootstrap.ts      data-* attributes, data-host validation, identity attrs
+│  ├─ state.ts          single LoaderState object (locale/theme resolution)
+│  ├─ session.ts        handshake (/session), resume token (sessionStorage / localStorage + TTL), setUser
+│  ├─ frame-dom.ts      Shadow DOM host, launcher, frame wrapper
+│  ├─ frame.ts          open/close, compact preview, focus management, iframe mount
+│  ├─ frame-anim.ts     open/close transition + prefers-reduced-motion
+│  ├─ viewport.ts       visualViewport fit for mobile keyboards
+│  ├─ theme.ts          launcher label/colour, unread badge
+│  ├─ css.ts            shadow CSS, badge ring, launcher offset
+│  ├─ bridge.ts         postMessage ↔ iframe (origin-locked), CustomEvent emitter
+│  ├─ api.ts            window.cluvixChat (open/close/toggle/setUser/on/off) + pre-ready queue
+│  ├─ campaigns-bridge.ts  campaign fetch/cache + SPA URL tracking
+│  ├─ storage.ts, constants.ts, types.ts
+├─ app/
+│  ├─ main.ts           entry → widget.html (iframe app): session, history, optimistic send, SSE
+│  ├─ ui.ts             WidgetUI facade (theme CSS vars, screens)
+│  ├─ ui/
+│  │  ├─ chat-list.ts   message groups, send status, typing indicator, sr-live region, retry
+│  │  ├─ prechat.ts     pre-chat form (name / phone / message) + validation
+│  │  ├─ composer.ts    textarea + send button
+│  │  ├─ preview.ts     campaign compact preview
+│  │  ├─ brand.ts       logo / avatar / header / footer markup (pure functions)
+│  │  ├─ markup.ts      escapeText / escapeAttr / safeHttpsUrl, icons, field builder, CSS inject
+│  │  └─ types.ts
+│  ├─ api.ts, sse.ts, store.ts, campaigns.ts, styles.ts
+└─ shared/
+   ├─ strings.ts        vi / en dictionaries + locale resolution (used by both bundles)
+   ├─ color.ts          WCAG contrast helpers (on-primary colour, auto-darkened primary)
+   ├─ protocol.ts       loader ↔ iframe postMessage protocol
+   └─ types.ts          theme / pre-chat / session shapes (mirrors the backend)
+```
+
+Rules of thumb: anything that runs on the customer page lives in `loader/`; anything inside the iframe
+lives in `app/`; nothing user-facing is hard-coded outside `shared/strings.ts`; every string that reaches
+the DOM goes through `textContent` or `escapeText`/`escapeAttr`.
+
 ## Build
 
 ```bash
