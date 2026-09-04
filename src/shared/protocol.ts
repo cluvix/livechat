@@ -26,12 +26,18 @@ export type IframeToLoader =
   // story B-05 (AC3): xin loader fetch lại campaign list BỎ CACHE (double-check campaign còn `enabled`
   // ngay trước khi hiện preview — chống hiện campaign admin vừa tắt). Loader trả lại qua message 'campaigns'
   // như thường (không cần message riêng).
-  | { channel: typeof WIDGET_CHANNEL; type: 'refetch_campaigns' };
+  | { channel: typeof WIDGET_CHANNEL; type: 'refetch_campaigns' }
+  // story-08 (AC4): iframe vừa nhận 1 tin của NHÂN VIÊN (qua SSE) — báo loader để loader phát CustomEvent
+  // `cluvix-chat:message` cho trang khách. CỐ Ý chỉ mang metadata tối thiểu (id + sent_at, KHÔNG nội dung,
+  // KHÔNG tin nội bộ src=2): trang khách không được đọc nội dung hội thoại qua public API.
+  | { channel: typeof WIDGET_CHANNEL; type: 'staff_message'; id: number; sent_at: number };
 
 // loader → iframe
 export type LoaderToIframe =
   | { channel: typeof WIDGET_CHANNEL; type: 'session'; data: SessionData } // kết quả handshake (thành công)
   | { channel: typeof WIDGET_CHANNEL; type: 'session_error'; disabled: boolean } // handshake 403/l ỗi; disabled=true khi site tắt/không hợp lệ
+  // story-08: 'opened'/'closed' cũng CHÍNH LÀ lệnh open/close đến từ public API `window.cluvixChat`
+  // (arch §3.3) — loader sở hữu khung nên nó tự mở/đóng rồi báo iframe, KHÔNG cần message riêng.
   | { channel: typeof WIDGET_CHANNEL; type: 'opened' } // iframe được mở (reset unread)
   | { channel: typeof WIDGET_CHANNEL; type: 'closed' } // iframe bị đóng từ ngoài
   // story B-04: danh sách campaign `enabled` của site (loader fetch site_key, KHÔNG cần JWT — B-02), gửi

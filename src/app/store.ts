@@ -9,6 +9,8 @@ export interface AppState {
   conversationId: number;
   theme: WidgetTheme;
   preChat: PreChatForm;
+  identityVerified: boolean; // story-07 AC7
+  displayName: string;
 }
 
 export const state: AppState = {
@@ -17,6 +19,8 @@ export const state: AppState = {
   conversationId: 0,
   theme: { ...DEFAULT_THEME },
   preChat: { ...DEFAULT_PRECHAT },
+  identityVerified: false,
+  displayName: '',
 };
 
 export function applySession(data: SessionData) {
@@ -24,6 +28,8 @@ export function applySession(data: SessionData) {
   state.conversationId = data.conversation_id;
   state.theme = data.config?.widget_theme ? { ...DEFAULT_THEME, ...data.config.widget_theme } : { ...DEFAULT_THEME };
   state.preChat = data.config?.pre_chat_form ? { ...DEFAULT_PRECHAT, ...data.config.pre_chat_form } : { ...DEFAULT_PRECHAT };
+  state.identityVerified = data.identity_verified === true;
+  state.displayName = data.display_name || '';
 }
 
 function lsKey(): string {

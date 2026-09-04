@@ -4,11 +4,16 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 
 // App build → public/widget.html (iframe app). viteSingleFile inline TOÀN BỘ JS+CSS vào 1 file HTML
 // duy nhất → đúng 1 output widget.html tự chứa (không asset rời, không hash), khớp AC1.
-// outDir = public repo cha; emptyOutDir=false (không xoá output ng build).
+// outDir = public repo cha mặc định; emptyOutDir=false (không xoá output ng build). story-10:
+// WIDGET_OUT_DIR override cho CI (build ra `dist/`).
+const outDir = process.env.WIDGET_OUT_DIR
+  ? resolve(__dirname, process.env.WIDGET_OUT_DIR)
+  : resolve(__dirname, '../../public');
+
 export default defineConfig({
   plugins: [viteSingleFile()],
   build: {
-    outDir: resolve(__dirname, '../../public'),
+    outDir,
     emptyOutDir: false,
     target: 'es2019',
     minify: 'esbuild',

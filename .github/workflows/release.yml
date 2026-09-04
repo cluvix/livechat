@@ -1,0 +1,59 @@
+name: Release
+
+# story-10 AC5: tag `v*.*.*` → build → sha256sum → GitHub Release đính widget.js/widget.html/SHA256SUMS.
+# CHANGELOG.md phải có mục cho version đang release (scripts/check-changelog.mjs), nếu không job fail
+# TRƯỚC khi build — tránh publish release mà changelog quên cập nhật.
+#
+# ⚠ Cùng ghi chú layout như ci.yml: `widget/` đóng vai REPO ROOT của repo mở nguồn riêng — KHÔNG
+# `working-directory`.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Đọc Node version từ .nvmrc
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - name: Tách version từ tag (bỏ tiền tố v)
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Kiểm CHANGELOG.md có mục cho version này
+        run: node scripts/check-changelog.mjs "${{ steps.ver.outputs.version }}"
+      - name: npm ci
+        run: npm ci
+      - name: Type-check
+        run: npm run type-check
+      - name: Build (widget.js + widget.html → dist/)
+        env:
+          WIDGET_OUT_DIR: dist
+        run: npm run build
+      - name: Size gate (≤ 50 KB gzip)
+        env:
+          WIDGET_OUT_DIR: dist
+        run: npm run size
+      - name: Cài Chromium cho Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Smoke test
+        run: npm test
+      - name: sha256sum
+        working-directory: dist
+        run: sha256sum widget.js widget.html > SHA256SUMS
+      - name: Tạo GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: |
+            dist/widget.js
+            dist/widget.html
+            dist/SHA256SUMS
+          generate_release_notes: true

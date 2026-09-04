@@ -7,6 +7,7 @@ import { fetchMessages, sendMessage, sendTyping, triggerCampaign } from './api';
 import { SseManager } from './sse';
 import { WidgetUI } from './ui';
 import { CampaignMatcher } from './campaigns';
+import { STRINGS } from './strings';
 import type { CampaignPreview } from '../shared/types';
 
 const TYPING_THROTTLE_MS = 2500;
@@ -28,6 +29,10 @@ let inChat = false;
 let awaitingPreChat = false;
 let lastTypingAt = 0;
 const pendingResend: { echoId: string; text: string }[] = [];
+// story-07 AC4: tin nhắn gõ sẵn trong pre-chat (field message) — gửi ngay khi enterChat(), TRƯỚC
+// loadHistory(). Guard firstMessageSent chống gửi lặp nếu enterChat/onSessionReady chạy lại (re-handshake).
+let pendingFirstMessage: string | null = null;
+let firstMessageSent = false;
 
 // story B-04: matching campaign chạy độc lập với luồng chat/handshake ở trên — nhận `campaigns`/`url_changed`
 // từ loader bất kể pre-chat/session đã sẵn sàng chưa (campaign phải chạy TRƯỚC khi visitor mở chat).
@@ -62,14 +67,18 @@ function setSnooze() {
 
 boot();
 
-function boot() {
-  ui = new WidgetUI(appRoot, state.theme, {
+function createUi(): WidgetUI {
+  return new WidgetUI(appRoot, state.theme, {
     onSend: handleSend,
     onTyping: handleTyping,
     onClose: () => post({ channel: WIDGET_CHANNEL, type: 'close' }),
     onSubmitPreChat: handleSubmitPreChat,
     onRetry: (echoId, text) => resend(echoId, text),
   });
+}
+
+function boot() {
+  ui = createUi();
   ui.showLoading();
   window.addEventListener('message', onLoaderMessage);
   // Báo loader iframe đã sẵn sàng nhận session.
@@ -81,9 +90,15 @@ function onLoaderMessage(ev: MessageEvent) {
   const msg = ev.data as LoaderToIframe;
   if (!msg || msg.channel !== WIDGET_CHANNEL) return;
   switch (msg.type) {
-    case 'session':
+    case 'session': {
+      // story-08 AC3: loader gọi setUser() ⇒ re-handshake ⇒ BE trả conversation_id KHÁC. Lịch sử/optimistic
+      // của hội thoại cũ không còn đúng — dựng lại UI sạch rồi nạp lại history theo JWT mới.
+      const prevConversationId = state.conversationId;
       applySession(msg.data);
+      const switchedConversation = prevConversationId !== 0 && state.conversationId !== prevConversationId;
+      if (switchedConversation) resetForNewConversation();
       ui.applyTheme(state.theme);
+      ui.setIdentity(state.identityVerified ? state.displayName : ''); // story-07 AC7
       // story B-05 (AC4): nếu session này đến từ 1 lượt click compact-preview đang chờ trigger → bắn
       // POST trigger TRƯỚC khi vào chat (để tin campaign có mặt khi loadHistory() chạy trong enterChat()).
       if (pendingTriggerCampaignId != null) {
@@ -93,9 +108,11 @@ function onLoaderMessage(ev: MessageEvent) {
       } else {
         onSessionReady();
       }
+      if (switchedConversation) sse?.reconnectNow(); // SSE cũ đang bám conversation/JWT cũ
       break;
+    }
     case 'session_error':
-      ui.showOffline(msg.disabled ? state.theme.offline_text : 'Không kết nối được, vui lòng thử lại sau.');
+      ui.showOffline(msg.disabled ? state.theme.offline_text : STRINGS.offlineGeneric);
       break;
     case 'opened':
       isOpen = true;
@@ -167,8 +184,7 @@ function openFromCampaign(campaign: CampaignPreview) {
   if (activeCampaign?.id !== campaign.id) return; // đã bị dismiss/thay đổi giữa chừng — bỏ qua click trễ
   activeCampaign = null;
   pendingTriggerCampaignId = campaign.id;
-  const needPreChat =
-    state.preChat.enabled && (state.preChat.require_name || state.preChat.require_phone) && !preChatDone();
+  const needPreChat = state.preChat.enabled && preChatFieldsRequired() && !preChatDone();
   if (needPreChat) {
     ui.showPreChat(state.preChat, state.theme.greeting_text); // submit → handleSubmitPreChat() → post('handshake', preChat)
   } else {
@@ -186,6 +202,22 @@ async function triggerCampaignThenContinue(campaignId: number): Promise<void> {
   onSessionReady();
 }
 
+// story-08 AC3: đổi identity ⇒ đổi hội thoại. WidgetUI giữ mảng tin trong instance nên cách sạch nhất (và
+// gọn nhất) là dựng instance mới; onSessionReady() ngay sau đó sẽ chạy lại enterChat() → loadHistory().
+function resetForNewConversation() {
+  inChat = false;
+  messageCount = 0;
+  firstMessageSent = false;
+  pendingFirstMessage = null;
+  pendingResend.length = 0;
+  activeCampaign = null;
+  unread = 0;
+  post({ channel: WIDGET_CHANNEL, type: 'unread', count: 0 });
+  awaitingPreChat = false;
+  ui = createUi();
+  ui.showLoading();
+}
+
 function onSessionReady() {
   // Sau khi có JWT mới: reconnect SSE + flush tin đang chờ gửi lại (JWT vừa hết hạn trước đó).
   if (inChat) {
@@ -199,14 +231,20 @@ function onSessionReady() {
     enterChat();
     return;
   }
-  const needPreChat =
-    state.preChat.enabled && (state.preChat.require_name || state.preChat.require_phone) && !preChatDone();
+  const needPreChat = state.preChat.enabled && preChatFieldsRequired() && !preChatDone();
   if (needPreChat) ui.showPreChat(state.preChat, state.theme.greeting_text);
   else enterChat();
 }
 
-function handleSubmitPreChat(name: string, phone: string) {
+function preChatFieldsRequired(): boolean {
+  return state.preChat.require_name || state.preChat.require_phone || state.preChat.require_message;
+}
+
+// story-07 AC3/AC4: form pre-chat giờ có thêm ô "Tin nhắn" — message KHÔNG đi qua handshake (protocol/BE
+// không nhận field này ở đây), chỉ giữ lại để gửi qua POST /message sau khi enterChat() có JWT.
+function handleSubmitPreChat(name: string, phone: string, message: string) {
   awaitingPreChat = true;
+  pendingFirstMessage = message || null;
   const preChat: { name?: string; phone?: string } = {};
   if (name) preChat.name = name;
   if (phone) preChat.phone = phone;
@@ -217,6 +255,14 @@ function handleSubmitPreChat(name: string, phone: string) {
 async function enterChat() {
   inChat = true;
   ui.showChat(state.theme.greeting_text);
+  // AC4: gửi tin đầu (nếu có) TRƯỚC loadHistory() — optimistic hiện "Đã gửi" khi lịch sử load xong ack lại.
+  // Guard firstMessageSent: onSessionReady() có thể chạy lại (re-handshake) mà không nên gửi lặp.
+  if (pendingFirstMessage && !firstMessageSent) {
+    firstMessageSent = true;
+    const text = pendingFirstMessage;
+    pendingFirstMessage = null;
+    handleSend(text);
+  }
   await loadHistory();
   startSse();
 }
@@ -241,6 +287,9 @@ function startSse() {
     onStaffMessage: (m) => {
       messageCount++;
       ui.addIncoming(m);
+      // story-08 AC4: báo loader phát CustomEvent `cluvix-chat:message` cho trang khách — CHỈ metadata
+      // (id + sent_at), KHÔNG nội dung tin. Tin nội bộ (src=2) BE đã không đẩy qua SSE cho visitor.
+      post({ channel: WIDGET_CHANNEL, type: 'staff_message', id: m.id, sent_at: m.sent_at });
       if (!isOpen) {
         unread++;
         post({ channel: WIDGET_CHANNEL, type: 'unread', count: unread });
@@ -249,6 +298,7 @@ function startSse() {
     onStaffTyping: () => ui.showStaffTyping(),
     onDowntimeRecovered: () => void loadHistory(), // bù tin lỡ khi mất kết nối > 3s
     onNeedRehandshake: () => requestHandshake(),
+    onStateChange: (connected) => ui.setConnected(connected), // story-07 AC2
   });
   sse.start();
 }

@@ -15,6 +15,7 @@ export interface SseHooks {
   onStaffTyping: () => void;
   onDowntimeRecovered: () => void; // downtime > 3s → refetch history
   onNeedRehandshake: () => void; // nghi JWT hết hạn → xin loader cấp lại
+  onStateChange: (connected: boolean) => void; // story-07 AC2 — chấm trạng thái ở header
 }
 
 export class SseManager {
@@ -75,6 +76,7 @@ export class SseManager {
         this.hooks.onDowntimeRecovered();
       }
       this.lastDisconnectAt = 0;
+      this.hooks.onStateChange(true);
     });
 
     es.addEventListener('new_message', (ev) => {
@@ -86,6 +88,7 @@ export class SseManager {
 
     es.onerror = () => {
       // EventSource tự retry nội bộ nhưng KHÔNG đổi được URL/JWT → tự quản lý: đóng + backoff thủ công.
+      this.hooks.onStateChange(false);
       if (!this.connectedOnce) {
         this.failsBeforeConnect++;
         if (this.failsBeforeConnect >= FAILS_BEFORE_REHANDSHAKE) {

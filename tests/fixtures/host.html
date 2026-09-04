@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <title>Host giả lập — smoke test</title>
+  </head>
+  <body>
+    <p>Trang khách giả lập (smoke test story-10).</p>
+    <script>
+      // Đọc tham số từ query string để dựng thẻ <script> loader đúng như trang khách thật sẽ nhúng —
+      // cho phép 1 fixture dùng chung cho cả 3 kịch bản (AC2/AC3/AC4) thay vì 3 file gần giống nhau.
+      var params = new URLSearchParams(location.search);
+      var s = document.createElement('script');
+      s.src = params.get('loader') || 'http://localhost:5600/widget.js';
+      s.setAttribute('data-site-key', params.get('siteKey') || 'test-site');
+      var host = params.get('host');
+      if (host !== null) s.setAttribute('data-host', host);
+      var userId = params.get('userId');
+      var userHash = params.get('userHash');
+      if (userId) s.setAttribute('data-user-id', userId);
+      if (userHash) s.setAttribute('data-user-hash', userHash);
+      s.async = true;
+      document.body.appendChild(s);
+    </script>
+  </body>
+</html>

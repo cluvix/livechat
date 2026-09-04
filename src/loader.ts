@@ -10,6 +10,12 @@
 // Loader chịu trách nhiệm: bubble + iframe container (Shadow DOM cô lập CSS), là "session broker" (mọi
 // handshake — mở đầu / pre-chat / refresh JWT hết hạn), unread badge, lưu visitor_token + trạng thái mở.
 // KHÔNG analytics/cookie bên thứ 3; localStorage chỉ visitor_token + open state + cache config (AC).
+//
+// story-08: loader còn là chủ của HỢP ĐỒNG MỞ NGUỒN với trang khách — `data-host` (tách origin backend khỏi
+// origin phục vụ widget.js), `window.cluvixChat` (open/close/toggle/setUser/on/off) và CustomEvent
+// `cluvix-chat:ready|opened|closed|message`. Identity (identifier + identifier_hash do SERVER partner ký)
+// chỉ nằm TRONG BỘ NHỚ, KHÔNG localStorage. ⚠ KHÔNG BAO GIỜ đọc `identity_secret` từ DOM/JS: secret ở lại
+// server partner, trang khách chỉ nhúng hash đã ký.
 
 import { WIDGET_CHANNEL, type IframeToLoader, type LoaderToIframe } from './shared/protocol';
 import {
@@ -19,13 +25,93 @@ import {
   type ClientEnvelope,
   type CampaignPreview,
   type CampaignsData,
+  type WidgetIdentity,
 } from './shared/types';
 
 const CAMPAIGNS_TTL_MS = 60 * 60 * 1000; // AC2: cache 1h theo siteKey
+const LOG = '[cluvix-livechat]';
+const SET_USER_THROTTLE_MS = 2000; // story-08: chặn re-handshake storm khi partner gọi setUser liên tục
+const FRAME_ANIM_MS = 180; // story-08 AC5 — phải khớp transition trong shadowCss()
+const FRAME_HIDE_FALLBACK_MS = 250; // dự phòng khi transitionend không bắn (tab ẩn, reduced-motion…)
+
+/** Tên event public phát ra `window` (hợp đồng mở nguồn — arch §3.3). */
+type PublicEventName = 'ready' | 'opened' | 'closed' | 'message';
+
+/** API công khai gắn vào `window.cluvixChat` (story-08 AC3). */
+interface CluvixChatApi {
+  open(): void;
+  close(): void;
+  toggle(): void;
+  setUser(user: unknown): void;
+  on(name: PublicEventName, cb: EventListener): void;
+  off(name: PublicEventName, cb: EventListener): void;
+}
+
+declare global {
+  interface Window {
+    cluvixChat?: CluvixChatApi;
+  }
+}
 
 interface Bootstrap {
   siteKey: string;
-  apiBase: string; // origin backend (nơi widget.js được serve) — dùng cho fetch /session + iframe src
+  apiBase: string; // origin backend — `data-host` nếu có, else origin nơi widget.js được serve
+  identity: WidgetIdentity | null; // story-08 AC2 — identity ban đầu từ data-user-*
+}
+
+/**
+ * story-08 AC1: chỉ chấp nhận ORIGIN THUẦN (scheme + host[:port], không path/query/hash/credentials).
+ * https bất kỳ; http chỉ cho localhost/127.0.0.1 (mirror luật allowed_origins của BE).
+ */
+function isAllowedHost(v: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(v);
+  } catch {
+    return false;
+  }
+  if (u.origin !== v) return false;
+  if (u.protocol === 'https:') return true;
+  return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1');
+}
+
+/**
+ * story-08 AC2/AC3: chuẩn hoá + validate identity. `identifier` 1..128 ký tự, `identifier_hash` đúng 64 hex.
+ * KHÔNG hợp lệ → null (gọi bên ngoài tự log). KHÔNG đọc/chấp nhận bất kỳ "secret" nào từ DOM: hash phải do
+ * SERVER của partner ký sẵn.
+ */
+function normalizeIdentity(raw: unknown): WidgetIdentity | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const identifier = typeof o.identifier === 'string' ? o.identifier.trim() : '';
+  const hash = typeof o.identifier_hash === 'string' ? o.identifier_hash.trim() : '';
+  if (identifier.length < 1 || identifier.length > 128) return null;
+  if (!/^[0-9a-fA-F]{64}$/.test(hash)) return null;
+  const out: WidgetIdentity = { identifier, identifier_hash: hash.toLowerCase() };
+  for (const k of ['name', 'phone', 'email'] as const) {
+    const v = o[k];
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
+function readIdentityAttrs(el: HTMLScriptElement): WidgetIdentity | null {
+  const identifier = (el.getAttribute('data-user-id') || '').trim();
+  const hash = (el.getAttribute('data-user-hash') || '').trim();
+  if (!identifier && !hash) return null; // không khai báo identity → luồng ẩn danh như cũ
+  const identity = normalizeIdentity({
+    identifier,
+    identifier_hash: hash,
+    name: el.getAttribute('data-user-name') || undefined,
+    phone: el.getAttribute('data-user-phone') || undefined,
+    email: el.getAttribute('data-user-email') || undefined,
+  });
+  if (!identity) {
+    console.error(
+      `${LOG} data-user-id/data-user-hash không hợp lệ (identifier 1..128 ký tự, hash 64 hex) — bỏ qua identity, chat ở chế độ ẩn danh.`,
+    );
+  }
+  return identity;
 }
 
 function readBootstrap(): Bootstrap | null {
@@ -35,20 +121,35 @@ function readBootstrap(): Bootstrap | null {
     document.querySelector<HTMLScriptElement>('script[data-site-key][src*="widget.js"]');
   if (!el) return null;
   const siteKey = (el.getAttribute('data-site-key') || '').trim();
-  if (!siteKey) return null;
-  let apiBase = '';
-  try {
-    apiBase = new URL(el.src).origin;
-  } catch {
-    apiBase = window.location.origin;
+  if (!siteKey) {
+    console.error(`${LOG} thiếu data-site-key trên thẻ <script> — widget KHÔNG được nạp.`);
+    return null;
   }
-  return { siteKey, apiBase };
+  // story-08 AC1: data-host tách origin backend khỏi origin phục vụ widget.js (CDN riêng, reverse proxy…).
+  const rawHost = (el.getAttribute('data-host') || '').trim().replace(/\/+$/, '');
+  let apiBase: string;
+  if (rawHost) {
+    if (!isAllowedHost(rawHost)) {
+      console.error(
+        `${LOG} data-host không hợp lệ: "${rawHost}" — cần origin thuần dạng https://host[:port] (http chỉ cho localhost/127.0.0.1). Widget KHÔNG được nạp.`,
+      );
+      return null;
+    }
+    apiBase = rawHost;
+  } else {
+    try {
+      apiBase = new URL(el.src).origin; // hành vi cũ: cùng origin với widget.js
+    } catch {
+      apiBase = window.location.origin;
+    }
+  }
+  return { siteKey, apiBase, identity: readIdentityAttrs(el) };
 }
 
 const boot = readBootstrap();
 if (boot) start(boot);
 
-function start({ siteKey, apiBase }: Bootstrap) {
+function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   const LS_TOKEN = `cluvix_lc_token_${siteKey}`;
   const LS_OPEN = `cluvix_lc_open_${siteKey}`;
   const LS_CFG = `cluvix_lc_cfg_${siteKey}`;
@@ -81,6 +182,30 @@ function start({ siteKey, apiBase }: Bootstrap) {
   let cachedTheme: WidgetTheme = readCachedTheme();
   let campaigns: CampaignPreview[] = []; // story B-04 (AC2) — buffer để gửi lại khi iframe 'ready' sau
   let lastSentUrl: string | null = null; // story B-04 (AC1) — tránh gửi trùng url_changed khi không đổi
+  // story-08: identity CHỈ trong memory (KHÔNG localStorage — hash là thông tin phiên của partner; reload
+  // trang partner sẽ nhúng lại data-user-* hoặc gọi setUser()).
+  let identity: WidgetIdentity | null = bootIdentity;
+  let lastSetUserAt = 0;
+  let mounted = false;
+  const pendingApiCalls: Array<() => void> = []; // lệnh public API gọi TRƯỚC khi mount xong → xếp hàng
+
+  // ── story-08 AC4: CustomEvent public trên window ──
+  function emit(name: PublicEventName, detail?: unknown) {
+    try {
+      window.dispatchEvent(
+        detail === undefined
+          ? new CustomEvent(`cluvix-chat:${name}`)
+          : new CustomEvent(`cluvix-chat:${name}`, { detail }),
+      );
+    } catch {
+      /* trang khách có polyfill lạ ghi đè CustomEvent — không để vỡ widget */
+    }
+  }
+
+  function runOrQueue(fn: () => void) {
+    if (mounted) fn();
+    else pendingApiCalls.push(fn);
+  }
 
   function readCachedTheme(): WidgetTheme {
     const raw = lsGet(LS_CFG);
@@ -204,6 +329,18 @@ function start({ siteKey, apiBase }: Bootstrap) {
 
   const badgeEl = launcher.querySelector<HTMLSpanElement>('.lc-badge')!;
 
+  // story-08 AC3: gắn API TRƯỚC khi kích mount — script nhúng async có thể load sau DOMContentLoaded, lúc
+  // đó mount() (và event `ready`) chạy NGAY ở dòng dưới; `window.cluvixChat` phải tồn tại trước thời điểm đó.
+  const api: CluvixChatApi = {
+    open: () => runOrQueue(() => open()),
+    close: () => runOrQueue(() => close()),
+    toggle: () => runOrQueue(() => (isOpen ? close() : open())),
+    setUser: (u: unknown) => runOrQueue(() => setUser(u)),
+    on: (name, cb) => window.addEventListener(`cluvix-chat:${name}`, cb),
+    off: (name, cb) => window.removeEventListener(`cluvix-chat:${name}`, cb),
+  };
+  window.cluvixChat = api;
+
   document.addEventListener('DOMContentLoaded', mount);
   if (document.readyState !== 'loading') mount();
 
@@ -218,6 +355,12 @@ function start({ siteKey, apiBase }: Bootstrap) {
     // Iframe 'ready' KHÔNG tự handshake (xem case 'ready' bên dưới) nên việc mount sớm không tạo
     // conversation/handshake ngoài ý muốn.
     ensureIframe();
+    // story-08 AC3/AC4: mount xong → public API hết "xếp hàng", phát `ready` ĐÚNG 1 LẦN (mount() có guard
+    // isConnected ở đầu nên không chạy 2 lần), rồi mới chạy các lệnh đã xếp hàng trước đó.
+    mounted = true;
+    emit('ready');
+    const queued = pendingApiCalls.splice(0, pendingApiCalls.length);
+    for (const fn of queued) fn();
     // Khôi phục trạng thái mở (nếu tab trước để mở) — chỉ auto-mở trên desktop để không chiếm màn mobile.
     if (lsGet(LS_OPEN) === '1' && !isMobile()) open();
   }
@@ -229,17 +372,66 @@ function start({ siteKey, apiBase }: Bootstrap) {
   // — click preview compact cần mở khung đầy đủ NGAY (trước cả khi biết có cần pre-chat form hay không),
   // nhưng handshake chỉ chạy khi iframe chủ động xin qua message 'handshake' (giữ đúng rule "handshake chỉ
   // khi mở chat thật", tránh 2 nơi cùng gọi handshake).
+  // ── story-08 AC5: animation khung (scale+fade 180ms, transform-origin ở góc bubble) ──
+  // Khung phải rời khỏi luồng (`display:none` qua thuộc tính `hidden`) khi đóng — nếu chỉ để opacity:0 nó
+  // vẫn nuốt click của trang khách. Vì vậy: mở = bỏ hidden → reflow → thêm class .lc-in; đóng = bỏ .lc-in →
+  // đợi transitionend (fallback timeout) → set hidden.
+  let hideTimer = 0;
+
+  function prefersReducedMotion(): boolean {
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
+  }
+
+  function showWrap() {
+    window.clearTimeout(hideTimer);
+    frameWrap.hidden = false;
+    // Ép reflow: không có bước này trình duyệt gộp "bỏ hidden" + "thêm class" thành 1 style pass ⇒ không animate.
+    void frameWrap.offsetWidth;
+    frameWrap.classList.add('lc-in');
+  }
+
+  function hideWrap() {
+    if (frameWrap.hidden) return;
+    frameWrap.classList.remove('lc-in');
+    window.clearTimeout(hideTimer);
+    if (prefersReducedMotion()) {
+      finishHide();
+      return;
+    }
+    hideTimer = window.setTimeout(finishHide, FRAME_HIDE_FALLBACK_MS);
+  }
+
+  function finishHide() {
+    window.clearTimeout(hideTimer);
+    if (frameWrap.classList.contains('lc-in')) return; // đã mở lại giữa chừng → huỷ việc ẩn
+    frameWrap.hidden = true;
+    frameWrap.classList.remove('lc-compact');
+    frameWrap.style.height = '';
+  }
+
+  frameWrap.addEventListener('transitionend', (ev) => {
+    const te = ev as TransitionEvent;
+    if (te.target !== frameWrap || te.propertyName !== 'transform') return;
+    if (!frameWrap.classList.contains('lc-in')) finishHide();
+  });
+
   function showFullFrame() {
+    const wasOpen = isOpen;
     isOpen = true;
     lsSet(LS_OPEN, '1');
     unread = 0;
     renderBadge();
-    frameWrap.hidden = false;
     frameWrap.classList.remove('lc-compact');
     frameWrap.style.height = '';
+    showWrap();
     launcher.classList.add('lc-open');
     ensureIframe();
     postToIframe({ channel: WIDGET_CHANNEL, type: 'opened' });
+    if (!wasOpen) emit('opened'); // AC4 — chỉ phát khi THỰC SỰ chuyển trạng thái
   }
 
   function open() {
@@ -249,28 +441,31 @@ function start({ siteKey, apiBase }: Bootstrap) {
   }
 
   function close() {
+    const wasOpen = isOpen;
     isOpen = false;
     lsSet(LS_OPEN, '0');
-    frameWrap.hidden = true;
-    frameWrap.classList.remove('lc-compact');
-    frameWrap.style.height = '';
+    hideWrap();
     launcher.classList.remove('lc-open');
     postToIframe({ channel: WIDGET_CHANNEL, type: 'closed' });
+    if (wasOpen) emit('closed'); // AC4
   }
 
   // ── story B-05: compact-preview (widget đóng, hiện bong bóng nhỏ mời chat) ──
   function showCompactFrame(height: number) {
     ensureIframe();
-    frameWrap.hidden = false;
     frameWrap.classList.add('lc-compact');
     frameWrap.style.height = `${Math.max(60, Math.round(height))}px`;
+    showWrap(); // story-08 AC5: dùng chung đường hiện khung (fade+scale) — compact vẫn giữ layout riêng
     // isOpen CỐ Ý giữ nguyên false — compact-preview không phải "mở chat thật" (không handshake).
   }
 
   function hideCompactFrame() {
+    if (!isOpen) {
+      hideWrap(); // finishHide() sẽ gỡ .lc-compact + height sau khi animation xong
+      return;
+    }
     frameWrap.classList.remove('lc-compact');
     frameWrap.style.height = '';
-    if (!isOpen) frameWrap.hidden = true;
   }
 
   function ensureIframe() {
@@ -292,10 +487,17 @@ function start({ siteKey, apiBase }: Bootstrap) {
   async function handshake(preChat?: { name?: string; phone?: string }): Promise<void> {
     if (handshaking) return;
     handshaking = true;
+    // story-08: identity có thể đổi NGAY TRONG LÚC request đang bay (setUser gọi giữa chừng) — ghi lại cái
+    // đang dùng để cuối lượt tự handshake bù, tránh phiên "kẹt" ở identity cũ mà không ai kích lại.
+    const usedIdentifier = identity ? identity.identifier : null;
     try {
       const token = lsGet(LS_TOKEN) || undefined;
       const body: Record<string, unknown> = { site_key: siteKey };
-      if (token) body.visitor_token = token;
+      // story-08 AC2: có identity → gửi identity, KHÔNG gửi visitor_token. BE cũng bỏ qua token khi có
+      // identity (arch §3.2 bước 4 — chống nhảy sang hội thoại ẩn danh bằng identity), loader không gửi
+      // cho rõ ràng và để không lộ token ẩn danh vào request đã xác thực.
+      if (identity) body.identity = identity;
+      else if (token) body.visitor_token = token;
       if (preChat) body.pre_chat = preChat;
 
       const res = await fetch(`${apiBase}/api/client/livechat/session`, {
@@ -313,7 +515,10 @@ function start({ siteKey, apiBase }: Bootstrap) {
       }
       lastError = null;
       session = env.data;
-      lsSet(LS_TOKEN, session.visitor_token);
+      // story-08: KHÔNG lưu visitor_token của phiên ĐÃ XÁC THỰC vào localStorage — token đó resume được
+      // hội thoại có danh tính; máy dùng chung / partner logout mà token còn nằm lại là rò hội thoại.
+      // Phiên identity resume bằng chính identifier (BE tra `idv:` — arch §3.2 bước 4), không cần token.
+      if (!identity) lsSet(LS_TOKEN, session.visitor_token);
       lsSet(LS_CFG, JSON.stringify(session.config || {}));
       cachedTheme = session.config?.widget_theme
         ? { ...DEFAULT_THEME, ...session.config.widget_theme }
@@ -325,6 +530,11 @@ function start({ siteKey, apiBase }: Bootstrap) {
       postToIframe({ channel: WIDGET_CHANNEL, type: 'session_error', disabled: false });
     } finally {
       handshaking = false;
+    }
+    // Identity đổi giữa lượt vừa rồi → phiên hiện tại không còn đúng người: handshake bù đúng 1 lần.
+    if (session && (identity ? identity.identifier : null) !== usedIdentifier) {
+      session = null;
+      void handshake();
     }
   }
 
@@ -382,6 +592,10 @@ function start({ siteKey, apiBase }: Bootstrap) {
       case 'refetch_campaigns':
         void loadCampaigns(true);
         break;
+      case 'staff_message':
+        // story-08 AC4: phát event public — CHỈ metadata (conversation_id + sent_at), KHÔNG nội dung tin.
+        emit('message', { conversation_id: session?.conversation_id ?? 0, sent_at: msg.sent_at });
+        break;
     }
   });
 
@@ -420,6 +634,45 @@ function start({ siteKey, apiBase }: Bootstrap) {
   function isMobile(): boolean {
     return window.matchMedia('(max-width: 480px)').matches;
   }
+
+  // ── story-08 AC3: public JS API (hợp đồng mở nguồn — arch §3.3) ──
+  // Lệnh gọi TRƯỚC khi mount xong được xếp hàng và chạy ngay sau khi phát `ready` (trang khách nhúng async
+  // nên rất dễ gọi cluvixChat.open() sớm hơn DOMContentLoaded).
+  function setUser(raw: unknown) {
+    const next = normalizeIdentity(raw);
+    if (!next) {
+      console.error(
+        `${LOG} setUser: cần {identifier (1..128 ký tự), identifier_hash (64 hex)} — bỏ qua lệnh này.`,
+      );
+      return;
+    }
+    // No-op khi identifier VÀ hash đều trùng cái đang áp — và handshake trước đó không lỗi. Nếu handshake
+    // trước đó lỗi (lastError sau 403), setUser lặp lại (kể cả cùng identity, hash mới) phải kích lại, không
+    // để widget kẹt offline vĩnh viễn.
+    if (
+      identity &&
+      identity.identifier === next.identifier &&
+      identity.identifier_hash === next.identifier_hash &&
+      !lastError
+    ) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastSetUserAt < SET_USER_THROTTLE_MS) {
+      console.error(`${LOG} setUser bị bỏ qua: gọi quá dày (tối đa 1 lần/${SET_USER_THROTTLE_MS / 1000}s).`);
+      return;
+    }
+    lastSetUserAt = now;
+    identity = next;
+    // Đã có phiên (ẩn danh hoặc identity khác), đã lỗi handshake trước đó, hoặc widget đang mở → re-handshake
+    // ngay: BE trả conversation_id khác, loader gửi `session` mới vào iframe, iframe nạp lại lịch sử theo
+    // đúng đường requestHandshake hiện có.
+    if (session || lastError || isOpen) {
+      session = null;
+      void handshake();
+    }
+  }
+
 }
 
 // ── assets ──
@@ -433,6 +686,8 @@ function closeIcon(): string {
 function shadowCss(primary = '#1677ff', left = false): string {
   const side = left ? 'left:20px;' : 'right:20px;';
   const frameSide = left ? 'left:20px;' : 'right:20px;';
+  // story-08 AC5: khung "nở ra" từ đúng góc đặt bubble (dưới-trái hoặc dưới-phải).
+  const frameOrigin = left ? '0% 100%' : '100% 100%';
   return `
 :host{all:initial}
 *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
@@ -440,6 +695,7 @@ function shadowCss(primary = '#1677ff', left = false): string {
   background:${primary};color:#fff;display:flex;align-items:center;justify-content:center;
   box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .15s ease, box-shadow .15s ease;padding:0}
 .lc-launcher:hover{transform:scale(1.06);box-shadow:0 8px 26px rgba(0,0,0,.32)}
+.lc-launcher:active{transform:scale(.94)}
 .lc-launcher .lc-ic-x{display:none}
 .lc-launcher.lc-open .lc-ic{display:none}
 .lc-launcher.lc-open .lc-ic-x{display:block}
@@ -447,7 +703,11 @@ function shadowCss(primary = '#1677ff', left = false): string {
   background:#ff5722;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px #fff}
 .lc-frame-wrap{position:fixed;bottom:92px;${frameSide}width:350px;height:550px;max-height:calc(100vh - 112px);
   border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:#fff;
-  transition:width .15s ease, height .15s ease}
+  opacity:0;transform:scale(.92);transform-origin:${frameOrigin};
+  transition:opacity ${FRAME_ANIM_MS}ms ease, transform ${FRAME_ANIM_MS}ms ease, width .15s ease, height .15s ease}
+/* story-08 AC5: .lc-in = trạng thái hiện. JS bỏ [hidden] → reflow → thêm .lc-in (mở); gỡ .lc-in rồi set
+   [hidden] sau transitionend/timeout (đóng) — khung đóng phải display:none để không nuốt click trang khách. */
+.lc-frame-wrap.lc-in{opacity:1;transform:scale(1)}
 .lc-frame{width:100%;height:100%;border:0;display:block}
 /* story B-05: compact-preview — bong bóng nhỏ nổi trên bubble, KHÔNG chiếm màn hình đầy đủ. height do JS
    set qua style inline (postMessage set_compact_view {height}) — thắng width/height ở trên nhờ specificity. */
@@ -458,5 +718,13 @@ function shadowCss(primary = '#1677ff', left = false): string {
   /* compact-preview vẫn phải là card nhỏ nổi trên mobile, không được luật full-screen ở trên đè lên */
   .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:92px!important;
     width:auto!important;max-width:calc(100vw - 24px);height:auto!important;border-radius:14px!important}
+}
+/* story-08 AC5: tôn trọng cấu hình hệ điều hành — không animation, khung hiện/ẩn tức thì.
+   JS cũng tự gọi finishHide() ngay trong chế độ này (transitionend sẽ không bao giờ bắn). */
+@media (prefers-reduced-motion: reduce){
+  .lc-launcher{transition:none}
+  .lc-launcher:hover,.lc-launcher:active{transform:none}
+  .lc-frame-wrap{transition:none;transform:none}
+  .lc-frame-wrap.lc-in{transform:none}
 }`;
 }

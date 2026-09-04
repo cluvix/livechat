@@ -1,11 +1,15 @@
-// Kiểm tra kích thước bundle (AC1: gzip < 50KB). Đo widget.js + widget.html trong public/ repo cha.
+// Kiểm tra kích thước bundle (AC1: gzip < 50KB). Đo widget.js + widget.html.
+// story-10: đọc thư mục output qua WIDGET_OUT_DIR (CI dùng `dist/`); mặc định public/ repo cha
+// (không phá vỡ hành vi cũ khi chạy trong erp-cluvix).
 import { gzipSync } from 'node:zlib';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const pub = resolve(here, '../../../public');
+const pub = process.env.WIDGET_OUT_DIR
+  ? resolve(here, '..', process.env.WIDGET_OUT_DIR)
+  : resolve(here, '../../../public');
 const files = ['widget.js', 'widget.html'];
 const LIMIT = 50 * 1024;
 

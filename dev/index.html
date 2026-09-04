@@ -10,12 +10,26 @@
       code { background: #f3f3f3; padding: 2px 6px; border-radius: 4px; }
       pre { background: #f6f8fa; padding: 14px; border-radius: 8px; overflow-x: auto; }
       .hint { color: #666; font-size: 14px; }
+      .panel { background: #fff; border: 1px solid #e2e2e2; border-radius: 10px; padding: 20px 24px; margin: 24px 0; }
+      .panel h2 { margin-top: 0; }
+      .field { margin: 10px 0; }
+      .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+      .field input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      .row button { padding: 8px 14px; border: 1px solid #1677ff; background: #1677ff; color: #fff; border-radius: 6px;
+        cursor: pointer; font-size: 13px; }
+      .row button.secondary { background: #fff; color: #1677ff; }
+      .row button:disabled { opacity: .5; cursor: not-allowed; }
+      #status { font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+      #status.ok { color: #0a7d2c; }
+      #status.err { color: #c62828; }
     </style>
   </head>
   <body>
     <div class="wrap">
       <h1>Trang giả lập website khách</h1>
-      <p>Trang này mô phỏng website của khách hàng có nhúng widget livechat Cluvix. Bong bóng chat xuất hiện ở góc.</p>
+      <p>Trang này mô phỏng website của khách hàng có nhúng widget livechat Cluvix. Điền form bên dưới rồi bấm
+        "Nạp widget" — script được chèn ĐỘNG (không cần sửa file này bằng tay).</p>
 
       <h2>Cách test tay</h2>
       <ol>
@@ -25,26 +39,210 @@
         <li>Tạo 1 site livechat (config omni-channel) và thêm origin của TRANG NÀY vào
           <code>allowed_origins</code> — ví dụ <code>http://localhost:5500</code> (origin bạn serve file này).
           BE chỉ cho <code>http</code> với <code>localhost/127.0.0.1</code>.</li>
-        <li>Serve thư mục <code>dev/</code> qua static server ở đúng origin đã whitelist
-          (vd <code>npx serve -l 5500 frontend/widget/dev</code>). MỞ bằng origin đó, KHÔNG mở bằng
-          <code>file://</code> (Origin null sẽ bị 403).</li>
-        <li>Thay <code>SITE_KEY_HERE</code> + <code>BACKEND_ORIGIN</code> trong snippet dưới bằng giá trị thật
-          (site_key nhận khi tạo site; BACKEND_ORIGIN = origin backend, vd <code>http://localhost:8081</code>).</li>
+        <li>Serve thư mục <code>dev/</code> qua static server ở đúng origin đã whitelist:
+          <code>npm run dev</code> (từ <code>frontend/widget/</code>) → phục vụ ở
+          <code>http://localhost:5500</code>. MỞ bằng origin đó, KHÔNG mở bằng <code>file://</code>
+          (Origin null sẽ bị 403).</li>
+        <li>Điền <strong>Site key</strong> + <strong>Backend origin</strong> ở panel dưới (site_key nhận khi tạo
+          site; backend origin = origin backend, vd <code>http://localhost:8081</code>) → bấm "Lưu + Nạp widget".
+          Giá trị được lưu vào <code>localStorage</code> của trang này nên lần sau mở lại không cần điền lại.</li>
         <li>Bấm bong bóng → điền pre-chat (nếu bật) → chat. Mở inbox omnichat (staff) trả lời → tin hiện realtime
           ở widget; staff gõ → widget hiện “đang trả lời…”. Đóng widget, staff gửi tin → badge unread trên bong bóng.</li>
       </ol>
+
+      <div class="panel">
+        <h2>Panel điều khiển demo</h2>
+        <div class="field">
+          <label for="f-site-key">Site key (<code>data-site-key</code>)</label>
+          <input id="f-site-key" type="text" placeholder="SITE_KEY_HERE" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="f-host">Backend origin (<code>data-host</code>)</label>
+          <input id="f-host" type="text" placeholder="http://localhost:8081" autocomplete="off" />
+        </div>
+        <div class="row">
+          <button id="btn-load" type="button">Lưu + Nạp widget</button>
+          <button id="btn-unload" type="button" class="secondary">Gỡ widget</button>
+        </div>
+        <div class="row">
+          <button id="btn-open" type="button" class="secondary" disabled>cluvixChat.open()</button>
+          <button id="btn-set-user" type="button" class="secondary" disabled>cluvixChat.setUser(vector test)</button>
+        </div>
+        <p id="status" class="hint">Chưa nạp widget.</p>
+        <p class="hint">"cluvixChat.setUser(vector test)" dùng ĐÚNG vector HMAC ở README (secret dev-only,
+          <code>identifier = "user-42"</code>) — chỉ hoạt động nếu site của bạn đang bật identity với secret đó.
+          Xem <a href="../README.vi.md#identity-verification">README.vi.md</a>.</p>
+      </div>
 
       <h2>Snippet nhúng</h2>
       <pre>&lt;script
   src="BACKEND_ORIGIN/widget.js"
   data-site-key="SITE_KEY_HERE"
+  data-host="BACKEND_ORIGIN"
   async&gt;&lt;/script&gt;</pre>
       <p class="hint">Snippet thật do BE trả về khi tạo/sửa site (field <code>snippet</code>).</p>
+      <p class="hint"><code>data-host</code> = origin backend (nơi có <code>/api</code> + <code>widget.html</code>).
+        Cho phép serve <code>widget.js</code> từ CDN/origin khác. Phải là ORIGIN THUẦN
+        (<code>https://host[:port]</code>, hoặc <code>http://localhost|127.0.0.1[:port]</code>) — sai định dạng
+        thì widget KHÔNG nạp và in <code>console.error</code>. Thiếu <code>data-host</code> → dùng origin của
+        chính <code>widget.js</code> (hành vi cũ).</p>
 
-      <!-- ▼▼ Dán snippet thật vào đây để test (bỏ comment + điền BACKEND_ORIGIN + SITE_KEY) ▼▼ -->
-      <!--
-      <script src="http://localhost:8081/widget.js" data-site-key="SITE_KEY_HERE" async></script>
-      -->
+      <h2>Identity verification (đăng nhập sẵn ở trang khách)</h2>
+      <p>Khi website khách đã biết người dùng là ai, gắn thêm <code>data-user-id</code> +
+        <code>data-user-hash</code> để hội thoại được gắn danh tính và liền mạch xuyên thiết bị.
+        <code>data-user-hash</code> = <code>hex(HMAC-SHA256(identity_secret, identifier))</code>.</p>
+      <pre>&lt;script
+  src="BACKEND_ORIGIN/widget.js"
+  data-site-key="SITE_KEY_HERE"
+  data-host="BACKEND_ORIGIN"
+  data-user-id="user-42@example.com"
+  data-user-hash="&lt;64 hex do SERVER của bạn ký&gt;"
+  data-user-name="Nguyễn Văn A"
+  data-user-phone="0900000000"
+  data-user-email="user-42@example.com"
+  async&gt;&lt;/script&gt;</pre>
+      <p class="hint"><strong>⚠ KHÔNG BAO GIỜ đặt <code>identity_secret</code> trong HTML/JS trang khách ở
+        production.</strong> Secret chỉ nằm ở SERVER của bạn; server ký ra hash rồi render hash vào trang.
+        Widget không đọc secret từ DOM ở bất kỳ đâu.</p>
+      <p class="hint">Reload trang mà không gọi lại <code>setUser</code>/không có <code>data-user-*</code> ⇒
+        phiên ẩn danh mới (identity KHÔNG được lưu vào <code>localStorage</code> — hash là thông tin phiên
+        của partner, không lưu trên máy dùng chung).</p>
+
+      <h3>Vector test tay (CHỈ DÙNG Ở DEV)</h3>
+      <p class="hint">Sinh hash mẫu bằng shell (secret dưới đây là secret DEV dùng-một-lần, KHÔNG phải secret
+        thật của site production):</p>
+      <pre># identity_secret DEV mẫu: dev-secret-doi-di-truoc-khi-dung-that
+printf '%s' 'user-42@example.com' | openssl dgst -sha256 -hmac 'dev-secret-doi-di-truoc-khi-dung-that' -hex</pre>
+      <p class="hint">Đặt đúng secret đó vào panel Identity của site (config omni-channel), rồi thử ở Console:</p>
+      <pre>// gắn danh tính khi người dùng vừa đăng nhập (hash do SERVER ký, ở đây dán tay để test)
+cluvixChat.setUser({
+  identifier: 'user-42@example.com',
+  identifier_hash: '&lt;dán hash 64 hex vừa sinh&gt;',
+  name: 'Nguyễn Văn A',
+  phone: '0900000000',
+});
+// hash SAI → BE trả 403, widget hiện text offline, KHÔNG lộ lý do
+cluvixChat.setUser({ identifier: 'user-42@example.com', identifier_hash: '0'.repeat(64) });</pre>
+
+      <h2>Public JS API + event</h2>
+      <pre>cluvixChat.open();      // mở khung chat
+cluvixChat.close();     // đóng
+cluvixChat.toggle();    // đảo trạng thái
+// gọi TRƯỚC khi widget mount xong vẫn hợp lệ — lệnh được xếp hàng, chạy sau sự kiện ready
+
+cluvixChat.on('ready',   () =&gt; console.log('widget sẵn sàng'));
+cluvixChat.on('opened',  () =&gt; console.log('đã mở'));
+cluvixChat.on('closed',  () =&gt; console.log('đã đóng'));
+// event 'message' CHỈ mang metadata {conversation_id, sent_at} — KHÔNG có nội dung tin nhắn
+cluvixChat.on('message', (e) =&gt; console.log('có tin nhân viên', e.detail));
+
+// tương đương: window.addEventListener('cluvix-chat:opened', fn)</pre>
+      <p class="hint"><code>setUser</code> bị throttle 1 lần/2s và no-op khi CẢ <code>identifier</code> VÀ
+        <code>identifier_hash</code> đều trùng cái đang áp thành công (chống re-handshake storm). Sau lỗi xác
+        thực (hash sai/hết hạn), gọi lại <code>setUser</code> luôn kích handshake mới — kể cả cùng
+        <code>identifier</code>.</p>
+
     </div>
+
+    <script>
+      // Panel điều khiển demo — KHÔNG phải phần widget. Đọc form site_key/host, lưu localStorage, chèn
+      // ĐỘNG thẻ <script data-site-key data-host> (khuôn README/README.vi §Quick start), rồi cho phép
+      // gọi thử window.cluvixChat.open()/setUser() ngay từ panel — không cần sửa HTML bằng tay mỗi lần đổi site.
+      (function () {
+        var LS_SITE_KEY = 'cluvix_dev_demo_site_key';
+        var LS_HOST = 'cluvix_dev_demo_host';
+        // Vector HMAC CHUNG với README/README.vi + identity_integration_test.go (story-03 AC8g) — CHỈ
+        // để test tay ở đây, KHÔNG phải secret thật. Hash đã tính sẵn (server-side) nên panel này
+        // KHÔNG cần biết identity_secret — đúng đúng mô hình "widget không bao giờ đọc secret".
+        var TEST_IDENTIFIER = 'user-42';
+        var TEST_HASH = 'a63cb3bd204a755b540eda8a223d431f92f5aa347b397df1401e3901fdf6e659';
+
+        var elSiteKey = document.getElementById('f-site-key');
+        var elHost = document.getElementById('f-host');
+        var elStatus = document.getElementById('status');
+        var btnLoad = document.getElementById('btn-load');
+        var btnUnload = document.getElementById('btn-unload');
+        var btnOpen = document.getElementById('btn-open');
+        var btnSetUser = document.getElementById('btn-set-user');
+
+        try {
+          elSiteKey.value = window.localStorage.getItem(LS_SITE_KEY) || '';
+          elHost.value = window.localStorage.getItem(LS_HOST) || '';
+        } catch (e) {
+          /* private mode — bỏ qua, form vẫn dùng được trong phiên hiện tại */
+        }
+
+        function setStatus(text, cls) {
+          elStatus.textContent = text;
+          elStatus.className = cls || '';
+        }
+
+        function removeWidget() {
+          var host = document.querySelector('[data-cluvix-livechat]');
+          if (host) host.remove();
+          var tag = document.getElementById('cluvix-dev-demo-script');
+          if (tag) tag.remove();
+          delete window.cluvixChat;
+          btnOpen.disabled = true;
+          btnSetUser.disabled = true;
+        }
+
+        function loadWidget() {
+          var siteKey = elSiteKey.value.trim();
+          var host = elHost.value.trim().replace(/\/+$/, '');
+          if (!siteKey || !host) {
+            setStatus('Cần điền cả Site key và Backend origin.', 'err');
+            return;
+          }
+          try {
+            window.localStorage.setItem(LS_SITE_KEY, siteKey);
+            window.localStorage.setItem(LS_HOST, host);
+          } catch (e) {
+            /* private mode — chỉ nạp cho phiên hiện tại */
+          }
+          removeWidget(); // gỡ bản cũ (nếu có) trước khi chèn lại với site/host mới
+
+          var script = document.createElement('script');
+          script.id = 'cluvix-dev-demo-script';
+          script.src = host + '/widget.js';
+          script.setAttribute('data-site-key', siteKey);
+          script.setAttribute('data-host', host);
+          script.async = true;
+          script.onerror = function () {
+            setStatus('Không tải được ' + script.src + ' — kiểm tra backend đang chạy + đúng origin.', 'err');
+          };
+          document.body.appendChild(script);
+          setStatus('Đang nạp widget.js từ ' + host + ' …');
+
+          window.addEventListener('cluvix-chat:ready', function onReady() {
+            window.removeEventListener('cluvix-chat:ready', onReady);
+            setStatus('Widget sẵn sàng (event ready).', 'ok');
+            btnOpen.disabled = false;
+            btnSetUser.disabled = false;
+          });
+        }
+
+        btnLoad.addEventListener('click', loadWidget);
+        btnUnload.addEventListener('click', function () {
+          removeWidget();
+          setStatus('Đã gỡ widget khỏi trang.');
+        });
+        btnOpen.addEventListener('click', function () {
+          if (window.cluvixChat) window.cluvixChat.open();
+        });
+        btnSetUser.addEventListener('click', function () {
+          if (!window.cluvixChat) return;
+          window.cluvixChat.setUser({
+            identifier: TEST_IDENTIFIER,
+            identifier_hash: TEST_HASH,
+            name: 'Test User (vector story-03)',
+          });
+          setStatus('Đã gọi setUser() với vector test — cần site bật identity với ĐÚNG secret trong README.');
+        });
+
+        // Tự nạp nếu đã có giá trị lưu từ lần trước (đỡ phải bấm lại mỗi lần mở trang).
+        if (elSiteKey.value && elHost.value) loadWidget();
+      })();
+    </script>
   </body>
 </html>

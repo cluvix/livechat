@@ -2,20 +2,31 @@
 //   backend/internal/modules/public/livechat/handler.go (Session, message, messages)
 //   backend/internal/modules/webapp/config/omni_channel/handler/livechat.go (widgetTheme, preChatForm)
 
-/** widget_theme — chốt story-07 AC3 (livechat.go widgetTheme). launcher_label optional. */
+/**
+ * widget_theme — chốt story-07 AC3 (livechat.go widgetTheme). launcher_label optional.
+ * `logo_url`/`brand_name`/`subtitle` — story-01 AC1 (widget-v2, `LogoURL`/`BrandName`/`Subtitle`
+ * `omitempty` trong `widgetTheme`, architecture.md §3.1/§5); optional vì site cũ chưa cấu hình.
+ */
 export interface WidgetTheme {
   primary_color: string;
   position: 'left' | 'right';
   greeting_text: string;
   offline_text: string;
   launcher_label?: string;
+  logo_url?: string;
+  brand_name?: string;
+  subtitle?: string;
 }
 
-/** pre_chat_form — chốt story-07 AC3 (livechat.go preChatForm). */
+/**
+ * pre_chat_form — chốt story-07 AC3 (livechat.go preChatForm).
+ * `require_message` — story-01 AC2 (`RequireMessage bool json:"require_message"`, default true).
+ */
 export interface PreChatForm {
   enabled: boolean;
   require_name: boolean;
   require_phone: boolean;
+  require_message: boolean;
 }
 
 /** config trả trong POST /session (có thể null nếu site chưa cấu hình → fallback default). */
@@ -24,12 +35,34 @@ export interface SessionConfig {
   pre_chat_form: PreChatForm | null;
 }
 
-/** data của POST /api/client/livechat/session (envelope .data). */
+/**
+ * data của POST /api/client/livechat/session (envelope .data).
+ * `identity_verified`/`display_name` — architecture.md §3.2 (identity verification, HMAC), story-03/story-07
+ * AC7: khi có, widget hiện "Bạn đang trò chuyện với tư cách {display_name}". Optional — session ẩn danh
+ * (không gửi `identity` khi handshake) không có 2 field này.
+ */
 export interface SessionData {
   visitor_jwt: string;
   visitor_token: string;
   conversation_id: number;
   config: SessionConfig;
+  identity_verified?: boolean;
+  display_name?: string;
+}
+
+/**
+ * Identity verification (story-08 AC2/AC3, architecture.md §3.2/§3.3).
+ * `identifier` = định danh người dùng bên partner (1..128 ký tự, thường email/user id).
+ * `identifier_hash` = hex(HMAC-SHA256(identity_secret, identifier)) — 64 hex, do SERVER của partner ký.
+ * ⚠ `identity_secret` là secret phía server partner: KHÔNG BAO GIỜ đặt trong DOM/JS trang khách; loader chỉ
+ * nhận hash đã ký sẵn và giữ identity TRONG BỘ NHỚ (không localStorage).
+ */
+export interface WidgetIdentity {
+  identifier: string;
+  identifier_hash: string;
+  name?: string;
+  phone?: string;
+  email?: string;
 }
 
 /** Envelope chuẩn client API (handler/helpers.go Success/Error/Validate). */
@@ -43,7 +76,8 @@ export interface ClientEnvelope<T> {
 
 /**
  * OmiMessage như visitor thấy. src: 0 = visitor (SrcUser), 1 = staff (SrcStaff).
- * GET /messages trả full record; SSE new_message trả visitorMessageView (đã lược field nội bộ).
+ * GET /messages lẫn SSE new_message đều trả visitorMessageView (BE lược field nội bộ; client_echo_id
+ * chỉ có ở tin của chính visitor, staff message không mang echo).
  * content có thể null (BE *string). sent_at = unix MILLIS.
  */
 export interface WidgetMessage {
@@ -72,6 +106,7 @@ export const DEFAULT_PRECHAT: PreChatForm = {
   enabled: true,
   require_name: true,
   require_phone: true,
+  require_message: true,
 };
 
 /** sender hiển thị kèm campaign — NULL khi sender_user_id NULL hoặc chưa có tên (OD-B5 v1, chốt ở B-02);
