@@ -2,6 +2,7 @@
 // (nhiều iframe/extension khác cũng postMessage). Origin check: 2 phía so origin chính domain widget mình
 // (iframe.contentWindow.origin = origin nơi widget.html được serve = origin của loader script).
 import type { CampaignPreview, SessionData } from './types';
+import type { Locale } from './strings';
 
 export const WIDGET_CHANNEL = 'cluvix-livechat';
 
@@ -34,7 +35,9 @@ export type IframeToLoader =
 
 // loader → iframe
 export type LoaderToIframe =
-  | { channel: typeof WIDGET_CHANNEL; type: 'session'; data: SessionData } // kết quả handshake (thành công)
+  // v1.2.0: `locale` = locale UI loader đã chốt (theme.locale → <html lang> trang khách → navigator).
+  // Optional (additive) — bản loader cũ không gửi thì iframe giữ locale tự đoán từ navigator.
+  | { channel: typeof WIDGET_CHANNEL; type: 'session'; data: SessionData; locale?: Locale } // kết quả handshake (thành công)
   | { channel: typeof WIDGET_CHANNEL; type: 'session_error'; disabled: boolean } // handshake 403/l ỗi; disabled=true khi site tắt/không hợp lệ
   // story-08: 'opened'/'closed' cũng CHÍNH LÀ lệnh open/close đến từ public API `window.cluvixChat`
   // (arch §3.3) — loader sở hữu khung nên nó tự mở/đóng rồi báo iframe, KHÔNG cần message riêng.

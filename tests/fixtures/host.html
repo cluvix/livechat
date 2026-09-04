@@ -10,6 +10,10 @@
       // Đọc tham số từ query string để dựng thẻ <script> loader đúng như trang khách thật sẽ nhúng —
       // cho phép 1 fixture dùng chung cho cả 3 kịch bản (AC2/AC3/AC4) thay vì 3 file gần giống nhau.
       var params = new URLSearchParams(location.search);
+      // `lang` cho phép giả lập trang khách khai báo ngôn ngữ khác (loader suy diễn locale từ <html lang>).
+      // Phải set TRƯỚC khi chèn loader — loader đọc lang ngay lúc start().
+      var lang = params.get('lang');
+      if (lang) document.documentElement.setAttribute('lang', lang);
       var s = document.createElement('script');
       s.src = params.get('loader') || 'http://localhost:5600/widget.js';
       s.setAttribute('data-site-key', params.get('siteKey') || 'test-site');

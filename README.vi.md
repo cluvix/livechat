@@ -38,6 +38,54 @@ Thêm 1 thẻ script vào trang, ngay trước `</body>`:
 Thiếu hoặc sai định dạng `data-host`/identity thì widget fail-closed: in `console.error` và hoặc không
 mount (`data-host`), hoặc rơi về phiên ẩn danh (identity).
 
+
+## Theme & đa ngôn ngữ
+
+Toàn bộ mục dưới đây cấu hình **ở admin Cluvix** (Cấu hình → Omni-channel → Livechat), KHÔNG đặt trong
+thẻ script — backend trả về trong `POST /session` và widget áp dụng ngay.
+
+### `widget_theme`
+
+| Field | Kiểu | Mô tả |
+|---|---|---|
+| `primary_color` | hex | Màu thương hiệu. Các bề mặt CÓ CHỮ (header, bong bóng của khách, nút gửi, nút chính, nút mở chat) được tô bằng biến thể **tối hơn** tự tính, để chữ trên đó luôn đạt WCAG 2.1 AA (4.5:1) — xem bên dưới. |
+| `position` | `left` \| `right` | Góc dưới đặt nút mở chat/khung chat. |
+| `greeting_text` | string | Câu chào đầu khung chat. Bỏ trống → câu chào mặc định theo locale. |
+| `offline_text` | string | Hiện khi kênh không khả dụng. Bỏ trống → text mặc định theo locale. |
+| `launcher_label` | string | Chữ trên nút mở chat. Mặc định "Tư vấn" (vi) / "Chat with us" (en). |
+| `logo_url` | URL https | Logo ở header/avatar. CHỈ nhận `https:`; khác thì rơi về chữ cái đầu thương hiệu. |
+| `brand_name` | string | Tiêu đề header. Bỏ trống → `launcher_label`, rồi tới mặc định theo locale. |
+| `subtitle` | string | Dòng dưới tiêu đề. Bỏ trống → widget hiện trạng thái trực tuyến/ngoại tuyến. |
+| `locale` | `vi` \| `en` | Ngôn ngữ UI. Tuỳ chọn — xem [Locale](#locale-1) bên dưới. |
+
+**Tự bảo đảm contrast.** `primary_color` chỉ giữ nguyên ở các chi tiết KHÔNG có chữ (viền focus,
+highlight). Với mọi bề mặt có chữ, widget làm tối màu theo bước 1% tới khi chữ trắng đạt 4.5:1, rồi chọn
+chữ trắng hay `#111827` tuỳ bên nào tương phản cao hơn. Màu quá sáng (vàng, xám nhạt) KHÔNG bị làm tối
+tới mức mất nhận diện: giữ nguyên màu và dùng chữ tối. Nhờ vậy không có màu hợp lệ nào cho ra chữ khó đọc.
+
+### `pre_chat_form`
+
+| Field | Kiểu | Mô tả |
+|---|---|---|
+| `enabled` | bool | Hỏi thông tin trước tin nhắn đầu tiên. |
+| `require_name` | bool | Hiện + bắt buộc ô họ tên. |
+| `require_phone` | bool | Hiện + bắt buộc ô số điện thoại. |
+| `require_message` | bool | Hiện + bắt buộc ô tin nhắn đầu. |
+| `phone_region` | `VN` \| `INTL` | Cách validate SĐT. `VN` (mặc định) nhận số di động VN **hoặc** E.164 (`+14155552671`); `INTL` chỉ nhận E.164. Tuỳ chọn — thiếu field ⇒ `VN`. |
+
+### Locale
+
+Ngôn ngữ UI suy diễn theo thứ tự, gặp cái nào hợp lệ thì dừng:
+
+1. `widget_theme.locale` từ admin,
+2. thuộc tính `lang` trên `<html>` của trang khách,
+3. `navigator.language`,
+4. `vi`.
+
+Loader là nơi chốt (chỉ loader đọc được `lang` của trang khách) rồi gửi xuống iframe kèm session; iframe
+set `document.documentElement.lang` tương ứng. Giờ trong danh sách tin format bằng
+`Intl.DateTimeFormat` theo đúng locale đó.
+
 ## Public JS API
 
 ```js
@@ -260,8 +308,8 @@ Response (`.data`):
   "identity_verified": false,
   "display_name": "…",
   "config": {
-    "widget_theme": { "primary_color": "#1677ff", "position": "right", "greeting_text": "…", "offline_text": "…" },
-    "pre_chat_form": { "enabled": true, "require_name": true, "require_phone": true, "require_message": true }
+    "widget_theme": { "primary_color": "#1677ff", "position": "right", "greeting_text": "…", "offline_text": "…", "locale": "vi" },
+    "pre_chat_form": { "enabled": true, "require_name": true, "require_phone": true, "require_message": true, "phone_region": "VN" }
   }
 }
 ```
@@ -295,6 +343,8 @@ Mở `http://localhost:5500`, dùng form trên trang để trỏ demo tới back
   `setUser`) sẽ có hội thoại **MỚI**; lịch sử ẩn danh trước đó KHÔNG được chuyển sang. Widget hiện "đang
   chat với tư cách `<tên>`" khi identity đã xác thực nên khách nhìn thấy được điều này.
 - **Footer "Powered by Cluvix" cố định** trong khung chat — v2 không cấu hình được.
+- **UI chỉ có tiếng Việt và tiếng Anh** (`vi`/`en`, đều LTR) — xem
+  [Theme & đa ngôn ngữ](#theme--đa-ngôn-ngữ). Chưa hỗ trợ RTL.
 - Hash identity không có hạn dùng (không `exp`/chống replay) — xem
   [Ghi chú bảo mật](#ghi-chú-bảo-mật).
 

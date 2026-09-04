@@ -126,8 +126,9 @@ test.describe('smoke — mở/đóng, pre-chat, gửi/nhận tin, footer (AC2)',
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Tin nhắn mở đầu (ô "Tin nhắn" của pre-chat) được gửi tự động khi vào chat — status "Đã gửi".
-    await expect(frame.locator('.lc-status', { hasText: 'Đã gửi' }).first()).toBeVisible();
+    // Tin nhắn mở đầu (ô "Tin nhắn" của pre-chat) được gửi tự động khi vào chat. "Đã gửi" nằm ở dòng giờ
+    // cuối nhóm (.lc-group-time) — .lc-status giờ CHỈ là nút thử lại khi gửi lỗi (v1.2.0).
+    await expect(frame.locator('.lc-group-time', { hasText: 'Đã gửi' }).first()).toBeVisible();
 
     // Tin staff đến qua SSE mock — có avatar (nhóm tin không phải của visitor luôn kèm avatar).
     await expect(frame.locator('.lc-bubble', { hasText: 'Xin chào, tôi có thể giúp gì cho bạn?' })).toBeVisible();
@@ -135,8 +136,89 @@ test.describe('smoke — mở/đóng, pre-chat, gửi/nhận tin, footer (AC2)',
 
     // Footer bắt buộc (story-07 AC6).
     const footerLink = frame.locator('.lc-footer a');
+    await expect(footerLink).toHaveText('CluvixHealth');
     await expect(footerLink).toHaveAttribute('href', 'https://cluvixhealth.vn');
     await expect(footerLink).toHaveAttribute('rel', 'noopener noreferrer');
+    // Khoảng trắng giữa "Cung cấp bởi" và link phải còn (footer KHÔNG dùng flex — v1.2.0 mục 1).
+    await expect(frame.locator('.lc-footer')).toContainText('Cung cấp bởi CluvixHealth');
+  });
+});
+
+// v1.2.0 mục 7: locale suy diễn theme.locale → <html lang> trang khách → navigator → 'vi'.
+test.describe('i18n — <html lang="en"> trên trang khách (không có theme.locale)', () => {
+  test('nhãn launcher + footer sang tiếng Anh', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    await page.route(`${API}/session`, (route) =>
+      json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: 'test-jwt',
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          // THEME cố ý KHÔNG có `locale` — locale phải suy ra từ <html lang="en"> của trang khách.
+          config: { widget_theme: THEME, pre_chat_form: { ...PRE_CHAT_FORM, enabled: false } },
+        },
+      }),
+    );
+    await page.route(`${API}/messages*`, (route) =>
+      json(route, { success: true, code: 200, message: '', data: [], timestamp: '' }),
+    );
+    await page.route(`${API}/sse*`, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'event: connected\ndata: {}\n\n' }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN, lang: 'en' }));
+
+    const widgetHost = page.locator('[data-cluvix-livechat]');
+    const launcher = widgetHost.locator('.lc-launcher');
+    await expect(launcher.locator('.lc-launcher-label')).toHaveText('Chat with us');
+    await expect(launcher).toHaveAttribute('aria-label', 'Open chat: Chat with us');
+    await expect(launcher).toHaveAttribute('aria-expanded', 'false');
+
+    await launcher.click();
+    await expect(launcher).toHaveAttribute('aria-expanded', 'true');
+
+    const frame = page.frameLocator('iframe.lc-frame');
+    await expect(frame.locator('.lc-footer')).toContainText('Powered by CluvixHealth');
+  });
+});
+
+// v1.2.0 mục 7: pre_chat_form.phone_region='INTL' → chỉ nhận E.164 (số quốc tế phải hợp lệ).
+test.describe('pre-chat — phone_region INTL', () => {
+  test('số E.164 hợp lệ → nút gửi bật', async ({ page }) => {
+    await mockCampaignsEmpty(page);
+    await page.route(`${API}/session`, (route) =>
+      json(route, {
+        success: true,
+        code: 200,
+        message: '',
+        timestamp: '',
+        data: {
+          visitor_jwt: 'test-jwt',
+          visitor_token: 'test-visitor-token',
+          conversation_id: 1,
+          config: {
+            widget_theme: THEME,
+            pre_chat_form: { ...PRE_CHAT_FORM, require_name: false, require_message: false, phone_region: 'INTL' },
+          },
+        },
+      }),
+    );
+
+    await page.goto(hostUrl({ siteKey: 'test-site', host: WIDGET_ORIGIN }));
+    await page.locator('[data-cluvix-livechat] .lc-launcher').click();
+
+    const frame = page.frameLocator('iframe.lc-frame');
+    const submitBtn = frame.locator('.lc-primary-btn');
+    await expect(submitBtn).toBeDisabled();
+    // Số VN cũng là E.164 khi ở dạng +84… nhưng dạng nội địa "0912345678" KHÔNG hợp lệ ở INTL.
+    await frame.locator('#lc-phone').fill('0912345678');
+    await expect(submitBtn).toBeDisabled();
+    await frame.locator('#lc-phone').fill('+14155552671');
+    await expect(submitBtn).toBeEnabled();
   });
 });
 

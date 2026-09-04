@@ -1,6 +1,7 @@
 // Shape khớp BE (story-07 config + story-17 session/message). KHÔNG đoán — trích từ handler thật:
 //   backend/internal/modules/public/livechat/handler.go (Session, message, messages)
 //   backend/internal/modules/webapp/config/omni_channel/handler/livechat.go (widgetTheme, preChatForm)
+import { DICTS, DEFAULT_LOCALE, type Locale } from './strings';
 
 /**
  * widget_theme — chốt story-07 AC3 (livechat.go widgetTheme). launcher_label optional.
@@ -16,6 +17,8 @@ export interface WidgetTheme {
   logo_url?: string;
   brand_name?: string;
   subtitle?: string;
+  /** v1.2.0 — locale UI ('vi' | 'en'). Optional: BE cũ chưa gửi field này ⇒ loader tự suy diễn (pickLocale). */
+  locale?: Locale;
 }
 
 /**
@@ -27,6 +30,11 @@ export interface PreChatForm {
   require_name: boolean;
   require_phone: boolean;
   require_message: boolean;
+  /**
+   * v1.2.0 — vùng số điện thoại chấp nhận ở pre-chat. 'VN' (mặc định) = số di động VN HOẶC E.164;
+   * 'INTL' = chỉ E.164. Optional: BE cũ chưa gửi field này ⇒ coi như 'VN'.
+   */
+  phone_region?: 'VN' | 'INTL';
 }
 
 /** config trả trong POST /session (có thể null nếu site chưa cấu hình → fallback default). */
@@ -95,12 +103,20 @@ export const SRC_VISITOR = 0;
 export const SRC_STAFF = 1;
 export const SRC_INTERNAL = 2; // note nội bộ — KHÔNG render cho visitor (phòng thủ; BE cũng đã chặn qua SSE).
 
-export const DEFAULT_THEME: WidgetTheme = {
-  primary_color: '#1677ff',
-  position: 'right',
-  greeting_text: 'Xin chào! Chúng tôi có thể giúp gì cho bạn?',
-  offline_text: 'Hiện không có nhân viên trực tuyến, để lại tin nhắn nhé!',
-};
+/**
+ * Theme mặc định theo locale — greeting/offline lấy từ DICTS (KHÔNG hardcode ở đây nữa) để bản 'en'
+ * không rơi về câu tiếng Việt khi site chưa cấu hình text riêng.
+ */
+export function defaultThemeFor(loc: Locale = DEFAULT_LOCALE): WidgetTheme {
+  const d = DICTS[loc] || DICTS[DEFAULT_LOCALE];
+  return {
+    primary_color: '#1677ff',
+    position: 'right',
+    greeting_text: d.themeGreeting,
+    offline_text: d.themeOffline,
+    locale: loc,
+  };
+}
 
 export const DEFAULT_PRECHAT: PreChatForm = {
   enabled: true,

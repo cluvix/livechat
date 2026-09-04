@@ -37,6 +37,55 @@ Add one script tag to your site, right before `</body>`:
 Missing or malformed `data-host`/identity attributes fail closed: the widget logs a `console.error` and
 either doesn't mount (`data-host`) or falls back to an anonymous session (identity).
 
+
+## Theme & localization
+
+Everything below is configured **in the Cluvix admin** (Config → Omni-channel → Livechat), not in the
+script tag — the backend returns it in `POST /session` and the widget applies it live.
+
+### `widget_theme`
+
+| Field | Type | Description |
+|---|---|---|
+| `primary_color` | hex | Brand colour. Surfaces that carry text (header, visitor bubble, send button, primary button, launcher) are painted with an automatically **darkened** variant so the text on them always reaches WCAG 2.1 AA (4.5:1) — see below. |
+| `position` | `left` \| `right` | Which bottom corner the launcher/panel sits in. |
+| `greeting_text` | string | First message shown in the panel. Defaults to a localized greeting. |
+| `offline_text` | string | Shown when the channel is unavailable. Defaults to a localized text. |
+| `launcher_label` | string | Text on the launcher pill. Defaults to "Tư vấn" (vi) / "Chat with us" (en). |
+| `logo_url` | https URL | Logo in the header/avatars. Only `https:` URLs are accepted; anything else falls back to the brand initial. |
+| `brand_name` | string | Title in the header. Falls back to `launcher_label`, then a localized default. |
+| `subtitle` | string | Line under the title. When empty, the widget shows the live online/offline status instead. |
+| `locale` | `vi` \| `en` | UI language. Optional — see [Locale](#locale) below. |
+
+**Automatic contrast.** `primary_color` is used as-is only for details without text (focus ring,
+highlights). For any surface with text on it the widget darkens the colour in 1% steps until white text
+reaches 4.5:1, and picks white or `#111827` — whichever contrasts better — as the text colour. Very
+light brands (yellow, light grey) are never darkened beyond recognition: they keep their colour and get
+dark text instead. So a valid brand colour can never produce unreadable text.
+
+### `pre_chat_form`
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Ask for details before the first message. |
+| `require_name` | bool | Show + require the name field. |
+| `require_phone` | bool | Show + require the phone field. |
+| `require_message` | bool | Show + require the first-message field. |
+| `phone_region` | `VN` \| `INTL` | Phone validation. `VN` (default) accepts a Vietnamese mobile number **or** E.164 (`+14155552671`); `INTL` accepts E.164 only. Optional — omitted means `VN`. |
+
+### Locale
+
+The UI language is resolved in this order, first match wins:
+
+1. `widget_theme.locale` from the admin,
+2. the `lang` attribute of the host page's `<html>` element,
+3. `navigator.language`,
+4. `vi`.
+
+The loader resolves it (only the loader can read the host page's `lang`) and passes it to the iframe
+together with the session, which also sets `document.documentElement.lang` accordingly. Times in the
+message list are formatted with `Intl.DateTimeFormat` for that locale.
+
 ## Public JS API
 
 ```js
@@ -259,8 +308,8 @@ Response (`.data`):
   "identity_verified": false,
   "display_name": "…",
   "config": {
-    "widget_theme": { "primary_color": "#1677ff", "position": "right", "greeting_text": "…", "offline_text": "…" },
-    "pre_chat_form": { "enabled": true, "require_name": true, "require_phone": true, "require_message": true }
+    "widget_theme": { "primary_color": "#1677ff", "position": "right", "greeting_text": "…", "offline_text": "…", "locale": "vi" },
+    "pre_chat_form": { "enabled": true, "require_name": true, "require_phone": true, "require_message": true, "phone_region": "VN" }
   }
 }
 ```
@@ -295,6 +344,8 @@ Open `http://localhost:5500`, use the on-page form to point the demo at your bac
   is not carried over. The widget shows "chatting as `<name>`" once identity is verified so this is
   visible to the visitor.
 - **Fixed "Powered by Cluvix" footer** in the chat panel — not configurable in v2.
+- **UI available in Vietnamese and English only** (`vi`/`en`, both LTR) — see
+  [Theme & localization](#theme--localization). No RTL support.
 - Identity hashes don't expire (no `exp`/replay protection) — see
   [Security notes](#security-notes).
 

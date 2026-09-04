@@ -7,7 +7,7 @@ import { fetchMessages, sendMessage, sendTyping, triggerCampaign } from './api';
 import { SseManager } from './sse';
 import { WidgetUI } from './ui';
 import { CampaignMatcher } from './campaigns';
-import { STRINGS } from './strings';
+import { pickLocale, t, type Locale } from '../shared/strings';
 import type { CampaignPreview } from '../shared/types';
 
 const TYPING_THROTTLE_MS = 2500;
@@ -15,6 +15,10 @@ const SNOOZE_MS = 60 * 60 * 1000; // AC5: bấm X → tắt campaign 1h
 
 const params = new URLSearchParams(window.location.search);
 state.siteKey = (params.get('site_key') || '').trim();
+// Locale tạm thời trước khi có `session`: iframe KHÔNG đọc được `<html lang>` của trang khách (khác
+// origin) nên chỉ đoán theo navigator. Loader chốt locale thật và gửi kèm message `session` (v1.2.0);
+// loader/BE cũ không gửi field đó ⇒ giữ nguyên phỏng đoán này.
+applyLocale(pickLocale({ navigatorLang: navigator.language }));
 
 const parentOrigin = referrerOrigin();
 const appRoot = document.getElementById('app') || document.body;
@@ -67,6 +71,11 @@ function setSnooze() {
 
 boot();
 
+function applyLocale(loc: Locale) {
+  state.locale = loc;
+  document.documentElement.lang = loc; // widget.html để trống lang, set động theo locale đã chốt
+}
+
 function createUi(): WidgetUI {
   return new WidgetUI(appRoot, state.theme, {
     onSend: handleSend,
@@ -74,13 +83,17 @@ function createUi(): WidgetUI {
     onClose: () => post({ channel: WIDGET_CHANNEL, type: 'close' }),
     onSubmitPreChat: handleSubmitPreChat,
     onRetry: (echoId, text) => resend(echoId, text),
-  });
+  }, state.locale);
 }
 
 function boot() {
   ui = createUi();
   ui.showLoading();
   window.addEventListener('message', onLoaderMessage);
+  // Escape trong iframe = đóng widget (trang cha cũng bắt Escape của chính nó — xem loader.ts).
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') post({ channel: WIDGET_CHANNEL, type: 'close' });
+  });
   // Báo loader iframe đã sẵn sàng nhận session.
   post({ channel: WIDGET_CHANNEL, type: 'ready' });
 }
@@ -94,7 +107,11 @@ function onLoaderMessage(ev: MessageEvent) {
       // story-08 AC3: loader gọi setUser() ⇒ re-handshake ⇒ BE trả conversation_id KHÁC. Lịch sử/optimistic
       // của hội thoại cũ không còn đúng — dựng lại UI sạch rồi nạp lại history theo JWT mới.
       const prevConversationId = state.conversationId;
+      // Locale phải chốt TRƯỚC applySession(): text mặc định của theme (greeting/offline) lấy theo locale.
+      const nextLocale = msg.locale ?? msg.data.config?.widget_theme?.locale ?? state.locale;
+      if (nextLocale !== state.locale) applyLocale(nextLocale);
       applySession(msg.data);
+      ui.setLocale(state.locale);
       const switchedConversation = prevConversationId !== 0 && state.conversationId !== prevConversationId;
       if (switchedConversation) resetForNewConversation();
       ui.applyTheme(state.theme);
@@ -112,12 +129,13 @@ function onLoaderMessage(ev: MessageEvent) {
       break;
     }
     case 'session_error':
-      ui.showOffline(msg.disabled ? state.theme.offline_text : STRINGS.offlineGeneric);
+      ui.showOffline(msg.disabled ? state.theme.offline_text : t(state.locale).offlineGeneric);
       break;
     case 'opened':
       isOpen = true;
       unread = 0;
       post({ channel: WIDGET_CHANNEL, type: 'unread', count: 0 });
+      if (inChat) ui.focusComposer(); // đang ở khung chat sẵn → mở lại thì con trỏ vào ngay ô soạn tin
       // Cạnh biên: user bấm BUBBLE (không phải click preview) trong lúc compact-preview đang hiện — huỷ
       // preview (không snooze, đây không phải hành động "đóng" campaign) + dọn UI khỏi màn preview dở dang
       // (session/onSessionReady sắp tới sẽ render lại đúng màn hình, nhưng cần tránh flash preview cũ).
@@ -255,6 +273,7 @@ function handleSubmitPreChat(name: string, phone: string, message: string) {
 async function enterChat() {
   inChat = true;
   ui.showChat(state.theme.greeting_text);
+  if (isOpen) ui.focusComposer(); // widget đang mở → bàn phím vào thẳng ô soạn tin
   // AC4: gửi tin đầu (nếu có) TRƯỚC loadHistory() — optimistic hiện "Đã gửi" khi lịch sử load xong ack lại.
   // Guard firstMessageSent: onSessionReady() có thể chạy lại (re-handshake) mà không nên gửi lặp.
   if (pendingFirstMessage && !firstMessageSent) {

@@ -18,8 +18,10 @@
 // server partner, trang khách chỉ nhúng hash đã ký.
 
 import { WIDGET_CHANNEL, type IframeToLoader, type LoaderToIframe } from './shared/protocol';
+import { pickLocale, t, type Dict, type Locale } from './shared/strings';
+import { onPrimaryColor, primaryStrong } from './shared/color';
 import {
-  DEFAULT_THEME,
+  defaultThemeFor,
   type SessionData,
   type WidgetTheme,
   type ClientEnvelope,
@@ -27,9 +29,6 @@ import {
   type CampaignsData,
   type WidgetIdentity,
 } from './shared/types';
-
-/** Chữ trên nút mở chat khi admin chưa đặt theme.launcher_label (khai báo đầu file — start() chạy ngay lúc load). */
-const LAUNCHER_LABEL_DEFAULT = 'Tư vấn';
 
 const CAMPAIGNS_TTL_MS = 60 * 60 * 1000; // AC2: cache 1h theo siteKey
 const LOG = '[cluvix-livechat]';
@@ -111,7 +110,7 @@ function readIdentityAttrs(el: HTMLScriptElement): WidgetIdentity | null {
   });
   if (!identity) {
     console.error(
-      `${LOG} data-user-id/data-user-hash không hợp lệ (identifier 1..128 ký tự, hash 64 hex) — bỏ qua identity, chat ở chế độ ẩn danh.`,
+      `${LOG} invalid data-user-id/data-user-hash (identifier 1..128 chars, hash 64 hex) — identity ignored, falling back to an anonymous chat.`,
     );
   }
   return identity;
@@ -125,7 +124,7 @@ function readBootstrap(): Bootstrap | null {
   if (!el) return null;
   const siteKey = (el.getAttribute('data-site-key') || '').trim();
   if (!siteKey) {
-    console.error(`${LOG} thiếu data-site-key trên thẻ <script> — widget KHÔNG được nạp.`);
+    console.error(`${LOG} missing data-site-key on the <script> tag — widget NOT loaded.`);
     return null;
   }
   // story-08 AC1: data-host tách origin backend khỏi origin phục vụ widget.js (CDN riêng, reverse proxy…).
@@ -134,7 +133,7 @@ function readBootstrap(): Bootstrap | null {
   if (rawHost) {
     if (!isAllowedHost(rawHost)) {
       console.error(
-        `${LOG} data-host không hợp lệ: "${rawHost}" — cần origin thuần dạng https://host[:port] (http chỉ cho localhost/127.0.0.1). Widget KHÔNG được nạp.`,
+        `${LOG} invalid data-host: "${rawHost}" — expected a bare origin like https://host[:port] (http is only allowed for localhost/127.0.0.1). Widget NOT loaded.`,
       );
       return null;
     }
@@ -182,7 +181,16 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   let unread = 0;
   let handshaking = false;
   let lastError: { disabled: boolean } | null = null; // buffer lỗi handshake nếu iframe chưa 'ready'
-  let cachedTheme: WidgetTheme = readCachedTheme();
+  // Locale: `<html lang>` của TRANG KHÁCH chỉ đọc được ở đây (iframe khác origin) — loader chốt rồi gửi
+  // xuống iframe kèm message `session`. Vòng 2 lượt vì `widget_theme.locale` (ưu tiên cao nhất) nằm trong
+  // chính theme cache mà theme mặc định lại phụ thuộc locale.
+  const htmlLang = document.documentElement.getAttribute('lang');
+  const navLang = typeof navigator !== 'undefined' ? navigator.language : null;
+  let locale: Locale = pickLocale({ htmlLang, navigatorLang: navLang });
+  let cachedTheme: WidgetTheme = readCachedTheme(locale);
+  locale = pickLocale({ themeLocale: cachedTheme.locale, htmlLang, navigatorLang: navLang });
+  cachedTheme = readCachedTheme(locale);
+  let S: Dict = t(locale);
   let campaigns: CampaignPreview[] = []; // story B-04 (AC2) — buffer để gửi lại khi iframe 'ready' sau
   let lastSentUrl: string | null = null; // story B-04 (AC1) — tránh gửi trùng url_changed khi không đổi
   // story-08: identity CHỈ trong memory (KHÔNG localStorage — hash là thông tin phiên của partner; reload
@@ -210,17 +218,17 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     else pendingApiCalls.push(fn);
   }
 
-  function readCachedTheme(): WidgetTheme {
+  function readCachedTheme(loc: Locale): WidgetTheme {
     const raw = lsGet(LS_CFG);
     if (raw) {
       try {
         const cfg = JSON.parse(raw) as { widget_theme?: WidgetTheme | null };
-        if (cfg.widget_theme) return { ...DEFAULT_THEME, ...cfg.widget_theme };
+        if (cfg.widget_theme) return { ...defaultThemeFor(loc), ...cfg.widget_theme };
       } catch {
         /* ignore */
       }
     }
-    return { ...DEFAULT_THEME };
+    return defaultThemeFor(loc);
   }
 
   // ── story B-04: campaign list (fetch 1 lần, cache 1h) ──
@@ -321,17 +329,23 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   const launcher = document.createElement('button');
   launcher.type = 'button';
   launcher.className = 'lc-launcher';
-  launcher.setAttribute('aria-label', 'Mở khung chat');
-  // Pill icon + chữ (mặc định "Tư vấn", admin đổi qua theme.launcher_label) — chỉ icon thì khách không biết
-  // đó là gì. Khi khung đang mở chỉ còn nút X tròn.
-  launcher.innerHTML = `${chatIcon()}${closeIcon()}<span class="lc-launcher-label"></span><span class="lc-badge" hidden></span>`;
+  // aria-label = động từ + nhãn ("Mở khung chat: Tư vấn") — chỉ nhãn thương hiệu thì screen reader không
+  // biết bấm vào sẽ xảy ra gì. aria-expanded/aria-haspopup mô tả quan hệ với khung chat (dialog).
+  launcher.setAttribute('aria-label', `${S.openChat}: ${S.launcherDefault}`);
+  launcher.setAttribute('aria-haspopup', 'dialog');
+  launcher.setAttribute('aria-expanded', 'false');
+  // Pill icon + chữ (mặc định theo locale, admin đổi qua theme.launcher_label) — chỉ icon thì khách không
+  // biết đó là gì. Khi khung mở, nút ẩn hẳn (CSS .lc-launcher.lc-open{display:none}).
+  launcher.innerHTML = `${chatIcon()}<span class="lc-launcher-label"></span><span class="lc-badge" hidden></span>`;
   const launcherLabelEl = launcher.querySelector<HTMLSpanElement>('.lc-launcher-label')!;
-  launcherLabelEl.textContent = LAUNCHER_LABEL_DEFAULT;
+  launcherLabelEl.textContent = S.launcherDefault;
   root.appendChild(launcher);
 
   const frameWrap = document.createElement('div');
   frameWrap.className = 'lc-frame-wrap';
   frameWrap.hidden = true;
+  frameWrap.setAttribute('role', 'dialog');
+  frameWrap.setAttribute('aria-label', S.launcherDefault);
   root.appendChild(frameWrap);
 
   const badgeEl = launcher.querySelector<HTMLSpanElement>('.lc-badge')!;
@@ -373,6 +387,10 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
   }
 
   launcher.addEventListener('click', () => (isOpen ? close() : open()));
+  // Escape ở TRANG CHA đóng khung (iframe tự bắt Escape của nó rồi post 'close' — main.ts).
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && isOpen) close();
+  });
 
   // ── mở / đóng ──
   // story B-05: tách phần "hiện khung đầy đủ" (showFullFrame) khỏi phần "đảm bảo có session" (ensureSession)
@@ -436,7 +454,9 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     frameWrap.style.height = '';
     showWrap();
     launcher.classList.add('lc-open');
+    launcher.setAttribute('aria-expanded', 'true');
     ensureIframe();
+    focusIframeWhenReady();
     postToIframe({ channel: WIDGET_CHANNEL, type: 'opened' });
     if (!wasOpen) emit('opened'); // AC4 — chỉ phát khi THỰC SỰ chuyển trạng thái
   }
@@ -453,7 +473,10 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     lsSet(LS_OPEN, '0');
     hideWrap();
     launcher.classList.remove('lc-open');
+    launcher.setAttribute('aria-expanded', 'false');
     postToIframe({ channel: WIDGET_CHANNEL, type: 'closed' });
+    // Trả focus về nút vừa mở khung — nếu không, focus rơi về <body> và người dùng bàn phím mất chỗ đứng.
+    if (wasOpen) launcher.focus();
     if (wasOpen) emit('closed'); // AC4
   }
 
@@ -475,11 +498,19 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     frameWrap.style.height = '';
   }
 
+  // Focus vào iframe ngay khi mở (nội dung khung nằm trong document khác — không focus thì Tab tiếp theo
+  // đi vào trang khách chứ không vào khung chat). Iframe có thể chưa 'ready' → hẹn lại ở case 'ready'.
+  let focusFrameOnReady = false;
+  function focusIframeWhenReady() {
+    if (iframe && iframeReady) iframe.focus();
+    else focusFrameOnReady = true;
+  }
+
   function ensureIframe() {
     if (iframe) return;
     iframe = document.createElement('iframe');
     iframe.className = 'lc-frame';
-    iframe.title = 'Khung trò chuyện';
+    iframe.title = S.frameTitle;
     iframe.setAttribute('allow', 'clipboard-write');
     iframe.src = `${widgetOrigin}/widget.html?site_key=${encodeURIComponent(siteKey)}`;
     frameWrap.appendChild(iframe);
@@ -527,11 +558,13 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
       // Phiên identity resume bằng chính identifier (BE tra `idv:` — arch §3.2 bước 4), không cần token.
       if (!identity) lsSet(LS_TOKEN, session.visitor_token);
       lsSet(LS_CFG, JSON.stringify(session.config || {}));
-      cachedTheme = session.config?.widget_theme
-        ? { ...DEFAULT_THEME, ...session.config.widget_theme }
-        : { ...DEFAULT_THEME };
+      const themeCfg = session.config?.widget_theme;
+      // Locale của theme (nếu admin đặt) thắng — phải chốt TRƯỚC khi trộn default, vì greeting/offline
+      // mặc định lấy theo locale. applyThemeToLauncher() ngay dưới cũng chốt lại đúng công thức này.
+      const themeLocale = pickLocale({ themeLocale: themeCfg?.locale, htmlLang, navigatorLang: navLang });
+      cachedTheme = themeCfg ? { ...defaultThemeFor(themeLocale), ...themeCfg } : defaultThemeFor(themeLocale);
       applyThemeToLauncher(cachedTheme);
-      postToIframe({ channel: WIDGET_CHANNEL, type: 'session', data: session });
+      postSession();
     } catch {
       lastError = { disabled: false };
       postToIframe({ channel: WIDGET_CHANNEL, type: 'session_error', disabled: false });
@@ -553,7 +586,11 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     switch (msg.type) {
       case 'ready':
         iframeReady = true;
-        if (session) postToIframe({ channel: WIDGET_CHANNEL, type: 'session', data: session });
+        if (focusFrameOnReady && isOpen) {
+          focusFrameOnReady = false;
+          iframe?.focus();
+        }
+        if (session) postSession();
         else if (lastError) postToIframe({ channel: WIDGET_CHANNEL, type: 'session_error', disabled: lastError.disabled });
         // story B-05 (CRITICAL): KHÔNG tự ensureSession() ở đây. Iframe giờ mount ẨN ngay từ boot (không
         // chờ open()) — nếu handshake tự động mỗi khi iframe 'ready', MỌI page-load sẽ tạo conversation dù
@@ -606,6 +643,11 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     }
   });
 
+  /** Gửi session kèm locale đã chốt (iframe không đọc được `<html lang>` của trang khách). */
+  function postSession() {
+    if (session) postToIframe({ channel: WIDGET_CHANNEL, type: 'session', data: session, locale });
+  }
+
   function postToIframe(msg: LoaderToIframe) {
     if (iframe && iframeReady && iframe.contentWindow) {
       iframe.contentWindow.postMessage(msg, widgetOrigin);
@@ -614,11 +656,18 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
 
   // ── theme + badge ──
   function applyThemeToLauncher(theme: WidgetTheme) {
-    style.textContent = shadowCss(theme.primary_color, theme.position === 'left');
-    const label = (theme.launcher_label || '').trim() || LAUNCHER_LABEL_DEFAULT;
+    locale = pickLocale({ themeLocale: theme.locale, htmlLang, navigatorLang: navLang });
+    S = t(locale);
+    // Nền nút = primary ĐÃ làm tối tới ngưỡng WCAG AA; chữ/outline = màu đối lập tính theo contrast thật.
+    const strong = primaryStrong(theme.primary_color);
+    const onPrimary = onPrimaryColor(strong);
+    style.textContent = shadowCss(theme.primary_color, theme.position === 'left', onPrimary, strong);
+    const label = (theme.launcher_label || '').trim() || S.launcherDefault;
     launcherLabelEl.textContent = label; // textContent — theme là dữ liệu admin, không innerHTML
-    launcher.setAttribute('aria-label', label);
+    launcher.setAttribute('aria-label', `${S.openChat}: ${label}`);
     launcher.title = label;
+    frameWrap.setAttribute('aria-label', label);
+    if (iframe) iframe.title = S.frameTitle;
   }
 
   function renderBadge() {
@@ -650,7 +699,7 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     const next = normalizeIdentity(raw);
     if (!next) {
       console.error(
-        `${LOG} setUser: cần {identifier (1..128 ký tự), identifier_hash (64 hex)} — bỏ qua lệnh này.`,
+        `${LOG} setUser: expected {identifier (1..128 chars), identifier_hash (64 hex)} — call ignored.`,
       );
       return;
     }
@@ -667,7 +716,7 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
     }
     const now = Date.now();
     if (now - lastSetUserAt < SET_USER_THROTTLE_MS) {
-      console.error(`${LOG} setUser bị bỏ qua: gọi quá dày (tối đa 1 lần/${SET_USER_THROTTLE_MS / 1000}s).`);
+      console.error(`${LOG} setUser ignored: called too often (at most once per ${SET_USER_THROTTLE_MS / 1000}s).`);
       return;
     }
     lastSetUserAt = now;
@@ -687,11 +736,8 @@ function start({ siteKey, apiBase, identity: bootIdentity }: Bootstrap) {
 function chatIcon(): string {
   return `<svg class="lc-ic" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 3C6.5 3 2 6.8 2 11.5c0 2.3 1.1 4.3 2.9 5.8L4 21l4.3-1.6c1.1.3 2.4.5 3.7.5 5.5 0 10-3.8 10-8.4S17.5 3 12 3z"/></svg>`;
 }
-function closeIcon(): string {
-  return `<svg class="lc-ic lc-ic-x" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>`;
-}
 
-function shadowCss(primary = '#1677ff', left = false): string {
+function shadowCss(primary = '#1677ff', left = false, onPrimary = '#fff', primaryStrongColor = primary): string {
   const side = left ? 'left:20px;' : 'right:20px;';
   const frameSide = left ? 'left:20px;' : 'right:20px;';
   // story-08 AC5: khung "nở ra" từ đúng góc đặt bubble (dưới-trái hoặc dưới-phải).
@@ -700,19 +746,18 @@ function shadowCss(primary = '#1677ff', left = false): string {
 :host{all:initial}
 *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
 .lc-launcher{position:fixed;bottom:20px;${side}height:52px;min-width:52px;padding:0 18px 0 14px;border-radius:26px;border:none;
-  cursor:pointer;background:${primary};color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;
+  cursor:pointer;background:${primaryStrongColor};color:${onPrimary};display:flex;align-items:center;justify-content:center;gap:8px;
   font:600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;white-space:nowrap;
   box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .15s ease, box-shadow .15s ease}
 .lc-launcher .lc-ic{width:22px;height:22px;flex:0 0 auto}
-.lc-launcher.lc-open{width:52px;padding:0;border-radius:50%}
-.lc-launcher.lc-open .lc-launcher-label{display:none}
+/* Vòng focus: viền trong dùng màu chữ trên nút (tương phản với NỀN NÚT), viền ngoài dùng chính màu nút —
+   nút nổi trên trang khách nền tuỳ ý, chỉ 1 vòng trắng thì mất hút trên trang nền sáng. */
+.lc-launcher:focus-visible{outline:3px solid ${onPrimary};outline-offset:3px;
+  box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 6px ${primaryStrongColor}}
 .lc-launcher:hover{transform:scale(1.06);box-shadow:0 8px 26px rgba(0,0,0,.32)}
 .lc-launcher:active{transform:scale(.94)}
-.lc-launcher .lc-ic-x{display:none}
-.lc-launcher.lc-open .lc-ic{display:none}
-.lc-launcher.lc-open .lc-ic-x{display:block}
 .lc-badge{position:absolute;top:-2px;${left ? 'left:-2px;' : 'right:-2px;'}min-width:20px;height:20px;padding:0 5px;border-radius:10px;
-  background:#ff5722;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px #fff}
+  background:#dc2626;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px #fff}
 .lc-frame-wrap{position:fixed;bottom:20px;${frameSide}width:350px;height:550px;max-height:calc(100vh - 40px);
   border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:#fff;
   opacity:0;transform:scale(.92);transform-origin:${frameOrigin};
@@ -723,7 +768,8 @@ function shadowCss(primary = '#1677ff', left = false): string {
 .lc-frame{width:100%;height:100%;border:0;display:block}
 /* story B-05: compact-preview — bong bóng nhỏ nổi trên bubble, KHÔNG chiếm màn hình đầy đủ. height do JS
    set qua style inline (postMessage set_compact_view {height}) — thắng width/height ở trên nhờ specificity. */
-/* Khung mở THAY CHỖ nút (nút ẩn khi mở, hiện lại khi đóng bằng X trên header) — không chồng lên nhau tốn chỗ. */
+/* Khung mở THAY CHỖ nút: nút ẩn HẲN khi mở (display:none), hiện lại khi đóng bằng X trên header/Escape —
+   không chồng lên nhau tốn chỗ. Vì vậy KHÔNG có biến thể "nút thu về hình tròn" khi mở. */
 .lc-launcher.lc-open{display:none}
 /* compact-preview vẫn nổi PHÍA TRÊN nút (nút còn hiện vì widget chưa "mở") */
 .lc-frame-wrap.lc-compact{bottom:92px;width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}

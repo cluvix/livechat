@@ -2,9 +2,10 @@
 // footer bắt buộc (story-07 UI v2). An toàn XSS: mọi nội dung động render bằng textContent/escapeText/
 // escapeAttr (KHÔNG innerHTML) — content staff/visitor/theme không tin cậy (story-07 AC8). Ngoại lệ duy
 // nhất: `logo_url` chỉ gán vào `src` sau khi xác nhận `protocol === 'https:'` (safeLogoUrl), và
-// `STRINGS.footerHtml` là HTML tĩnh KHÔNG chứa biến/config nên an toàn gán thẳng.
+// `footerHtml` là HTML tĩnh KHÔNG chứa biến/config nên an toàn gán thẳng.
 import { APP_CSS } from './styles';
-import { STRINGS } from './strings';
+import { t, type Dict, type Locale } from '../shared/strings';
+import { onPrimaryColor, primarySoft, primaryStrong } from '../shared/color';
 import {
   SRC_INTERNAL,
   SRC_VISITOR,
@@ -36,20 +37,32 @@ interface RenderMsg {
   status: 'sent' | 'sending' | 'failed';
 }
 
-/** Validate SĐT di động VN (client-side; BE là nguồn chân lý — 422 nếu lệch). +84/0 + đầu 3/5/7/8/9 + 8 số. */
-export function isValidVNMobile(raw: string): boolean {
-  const s = raw.replace(/[\s.\-()]/g, '');
-  return /^(?:\+84|0)(?:3|5|7|8|9)\d{8}$/.test(s);
-}
+/** SĐT di động VN: +84/0 + đầu 3/5/7/8/9 + 8 số. */
+const VN_MOBILE = /^(?:\+84|0)(?:3|5|7|8|9)\d{8}$/;
+/** E.164: dấu + tuỳ chọn, không bắt đầu bằng 0, tổng 7..15 chữ số. */
+const E164 = /^\+?[1-9]\d{6,14}$/;
 
-const timeFormatter = new Intl.DateTimeFormat('vi', { hour: '2-digit', minute: '2-digit' });
+/**
+ * Validate SĐT ở pre-chat (client-side; BE là nguồn chân lý — 422 nếu lệch).
+ * `VN` (mặc định) chấp nhận số di động VN HOẶC E.164 — site VN vẫn nhận được khách nước ngoài.
+ * `INTL` chỉ chấp nhận E.164.
+ */
+export function isValidPhone(raw: string, region: 'VN' | 'INTL' = 'VN'): boolean {
+  const s = raw.replace(/[\s.\-()]/g, '');
+  if (region === 'INTL') return E164.test(s);
+  return VN_MOBILE.test(s) || E164.test(s);
+}
 
 export class WidgetUI {
   private host: HTMLElement;
   private theme: WidgetTheme;
   private cb: UiCallbacks;
+  private locale: Locale;
+  private s: Dict;
+  private timeFormatter: Intl.DateTimeFormat;
 
   private bodyEl: HTMLElement | null = null;
+  private srEl: HTMLElement | null = null; // vùng aria-live ẩn (chỉ đọc TIN MỚI, không đọc lại cả log)
   private typingEl: HTMLElement | null = null;
   private typingTimer: number | null = null;
   private messages: RenderMsg[] = [];
@@ -58,23 +71,38 @@ export class WidgetUI {
   private identityDisplayName = ''; // story-07 AC7
   private animatedKeys = new Set<string>(); // story-07 AC5 — chỉ animate tin THẬT SỰ mới, không replay mỗi renderList()
 
-  constructor(host: HTMLElement, theme: WidgetTheme, cb: UiCallbacks) {
+  constructor(host: HTMLElement, theme: WidgetTheme, cb: UiCallbacks, locale: Locale = 'vi') {
     this.host = host;
     this.theme = theme;
     this.cb = cb;
+    this.locale = locale;
+    this.s = t(locale);
+    this.timeFormatter = makeTimeFormatter(locale);
     const style = document.createElement('style');
     style.textContent = APP_CSS;
     document.head.appendChild(style);
     this.applyTheme(theme);
   }
 
+  /** Đổi locale (loader chốt và gửi kèm message `session`) — gọi TRƯỚC khi render lại màn hình. */
+  setLocale(locale: Locale) {
+    this.locale = locale;
+    this.s = t(locale);
+    this.timeFormatter = makeTimeFormatter(locale);
+  }
+
   applyTheme(theme: WidgetTheme) {
     this.theme = theme;
     const primary = theme.primary_color || '#1677ff';
+    // Nền THẬT của mọi bề mặt có chữ là --lc-primary-strong (primary đã làm tối tới khi chữ đạt WCAG AA);
+    // --lc-primary giữ đúng màu admin chọn cho chi tiết không có chữ (viền focus, highlight).
+    const strong = primaryStrong(primary);
     const root = document.documentElement.style;
     root.setProperty('--lc-primary', primary);
-    root.setProperty('--lc-on-primary', onPrimaryColor(primary));
+    root.setProperty('--lc-primary-strong', strong);
+    root.setProperty('--lc-on-primary', onPrimaryColor(strong));
     root.setProperty('--lc-primary-soft', primarySoft(primary));
+    this.timeFormatter = makeTimeFormatter(this.locale);
   }
 
   /** story-07 AC2 — cập nhật chấm trạng thái + subtitle mặc định (khi admin chưa cấu hình subtitle riêng)
@@ -87,7 +115,7 @@ export class WidgetUI {
     dot.classList.toggle('lc-dot-on', connected);
     if (!(this.theme.subtitle || '').trim()) {
       const sub = dot.nextElementSibling as HTMLElement | null;
-      if (sub) sub.textContent = connected ? STRINGS.statusOnline : STRINGS.statusOffline;
+      if (sub) sub.textContent = connected ? this.s.statusOnline : this.s.statusOffline;
     }
   }
 
@@ -105,14 +133,14 @@ export class WidgetUI {
         el.className = 'lc-identity';
         wrap.appendChild(el);
       }
-      el.textContent = STRINGS.identifiedAs(this.identityDisplayName);
+      el.textContent = this.s.identifiedAs(this.identityDisplayName);
     } else if (el) {
       el.remove();
     }
   }
 
   private brandName(): string {
-    return (this.theme.brand_name || this.theme.launcher_label || '').trim() || STRINGS.defaultBrand;
+    return (this.theme.brand_name || this.theme.launcher_label || '').trim() || this.s.defaultBrand;
   }
 
   private safeLogoUrl(): string | null {
@@ -138,10 +166,10 @@ export class WidgetUI {
   private header(): string {
     const brand = this.brandName();
     const subtitleRaw = (this.theme.subtitle || '').trim();
-    const subtitle = subtitleRaw || (this.connected ? STRINGS.statusOnline : STRINGS.statusOffline);
+    const subtitle = subtitleRaw || (this.connected ? this.s.statusOnline : this.s.statusOffline);
     const dotCls = this.connected ? 'lc-dot lc-dot-on' : 'lc-dot';
     const identity = this.identityDisplayName
-      ? `<div class="lc-identity">${escapeText(STRINGS.identifiedAs(this.identityDisplayName))}</div>`
+      ? `<div class="lc-identity">${escapeText(this.s.identifiedAs(this.identityDisplayName))}</div>`
       : '';
     return `<div class="lc-header-wrap">
       <div class="lc-header">
@@ -152,7 +180,7 @@ export class WidgetUI {
             <div class="lc-header-sub"><span class="${dotCls}"></span><span>${escapeText(subtitle)}</span></div>
           </div>
         </div>
-        <button class="lc-x" type="button" aria-label="${escapeAttr(STRINGS.close)}">${xIcon()}</button>
+        <button class="lc-x" type="button" aria-label="${escapeAttr(this.s.close)}">${xIcon()}</button>
       </div>
       ${identity}
     </div>`;
@@ -160,7 +188,7 @@ export class WidgetUI {
 
   private footer(): string {
     // story-07 AC6 — bắt buộc, không có cờ tắt. footerHtml là HTML tĩnh (không biến), an toàn.
-    return `<div class="lc-footer">${STRINGS.footerHtml}</div>`;
+    return `<div class="lc-footer">${this.s.footerHtml}</div>`;
   }
 
   private wireClose() {
@@ -169,7 +197,7 @@ export class WidgetUI {
 
   showLoading() {
     this.host.innerHTML = `<div class="lc-app">${this.header()}
-      <div class="lc-center">${chatDots()}<div>${escapeText(STRINGS.connecting)}</div></div>
+      <div class="lc-center">${chatDots()}<div>${escapeText(this.s.connecting)}</div></div>
       ${this.footer()}</div>`;
     this.wireClose();
   }
@@ -179,26 +207,27 @@ export class WidgetUI {
       <div class="lc-center">${offlineIcon()}<div class="lc-off-text"></div></div>
       ${this.footer()}</div>`;
     this.host.querySelector<HTMLElement>('.lc-off-text')!.textContent =
-      text || this.theme.offline_text || STRINGS.offlineDefault;
+      text || this.theme.offline_text || this.s.offlineDefault;
     this.wireClose();
   }
 
   showPreChat(cfg: PreChatForm, greeting: string) {
     const nameField = cfg.require_name
-      ? field('lc-name', STRINGS.nameLabel, 'text', STRINGS.namePlaceholder, STRINGS.nameError)
+      ? field('lc-name', this.s.nameLabel, 'text', this.s.namePlaceholder, this.s.nameError)
       : '';
     const phoneField = cfg.require_phone
-      ? field('lc-phone', STRINGS.phoneLabel, 'tel', STRINGS.phonePlaceholder, STRINGS.phoneError)
+      ? field('lc-phone', this.s.phoneLabel, 'tel', this.s.phonePlaceholder, this.s.phoneError)
       : '';
+    const phoneRegion = cfg.phone_region === 'INTL' ? 'INTL' : 'VN'; // BE cũ chưa gửi field ⇒ 'VN'
     const messageField = cfg.require_message
-      ? field('lc-message', STRINGS.messageLabel, 'text', STRINGS.messagePlaceholder, STRINGS.messageError, true)
+      ? field('lc-message', this.s.messageLabel, 'text', this.s.messagePlaceholder, this.s.messageError, true)
       : '';
     this.host.innerHTML = `<div class="lc-app">${this.header()}
       <div class="lc-prechat">
         <div class="lc-prechat-logo">${this.logoHtml(56, true)}</div>
         <p class="lc-greeting">${escapeText(greeting || this.theme.greeting_text)}</p>
         ${nameField}${phoneField}${messageField}
-        <button class="lc-primary-btn" type="button" disabled>${escapeText(STRINGS.submitPreChat)}</button>
+        <button class="lc-primary-btn" type="button" disabled>${escapeText(this.s.submitPreChat)}</button>
       </div>
       ${this.footer()}</div>`;
     this.wireClose();
@@ -211,7 +240,7 @@ export class WidgetUI {
       : null;
 
     const nameValid = (v: string) => v.trim().length >= 1;
-    const phoneValid = (v: string) => isValidVNMobile(v.trim());
+    const phoneValid = (v: string) => isValidPhone(v.trim(), phoneRegion);
     const messageValid = (v: string) => v.trim().length >= 1;
 
     const isValid = (): boolean =>
@@ -250,7 +279,7 @@ export class WidgetUI {
       check(messageInput, messageValid);
       if (!ok) return;
       btn.disabled = true;
-      btn.textContent = STRINGS.submitPreChatSending;
+      btn.textContent = this.s.submitPreChatSending;
       this.cb.onSubmitPreChat(
         nameInput?.value.trim() || '',
         phoneInput?.value.trim() || '',
@@ -273,13 +302,13 @@ export class WidgetUI {
    * thật (px) của khối vừa render để caller (main.ts) xin loader resize iframe đúng khít (postMessage
    * set_compact_view). sender null → fallback avatar chữ cái đầu + tên site (OD-B5). */
   showCampaignPreview(campaign: CampaignPreview, siteFallbackName: string, cb: CampaignPreviewCallbacks): number {
-    const name = (campaign.sender?.name || siteFallbackName || STRINGS.defaultBrand).trim() || STRINGS.defaultBrand;
+    const name = (campaign.sender?.name || siteFallbackName || this.s.defaultBrand).trim() || this.s.defaultBrand;
     const avatarUrl = campaign.sender?.avatar || '';
     const avatarHtml = avatarUrl
       ? `<img class="lc-preview-avatar" src="${escapeAttr(avatarUrl)}" alt=""/>`
       : `<div class="lc-preview-avatar lc-preview-avatar-fallback">${escapeText(name.charAt(0).toUpperCase() || '?')}</div>`;
     this.host.innerHTML = `<div class="lc-preview">
-      <button class="lc-preview-x" type="button" aria-label="${escapeAttr(STRINGS.close)}">${xIcon()}</button>
+      <button class="lc-preview-x" type="button" aria-label="${escapeAttr(this.s.close)}">${xIcon()}</button>
       <div class="lc-preview-body">
         ${avatarHtml}
         <div class="lc-preview-text">
@@ -299,14 +328,16 @@ export class WidgetUI {
   showChat(greeting: string) {
     this.greeting = greeting || this.theme.greeting_text;
     this.host.innerHTML = `<div class="lc-app">${this.header()}
-      <div class="lc-body" role="log" aria-live="polite"></div>
+      <div class="lc-body" role="log"></div>
+      <div class="lc-sr" aria-live="polite" aria-atomic="true"></div>
       <div class="lc-composer">
-        <textarea rows="1" placeholder="${escapeAttr(STRINGS.composerPlaceholder)}" aria-label="${escapeAttr(STRINGS.composerAriaLabel)}"></textarea>
-        <button class="lc-send" type="button" aria-label="${escapeAttr(STRINGS.sendAriaLabel)}" disabled>${sendIcon()}</button>
+        <textarea rows="1" placeholder="${escapeAttr(this.s.composerPlaceholder)}" aria-label="${escapeAttr(this.s.composerAriaLabel)}"></textarea>
+        <button class="lc-send" type="button" aria-label="${escapeAttr(this.s.sendAriaLabel)}" disabled>${sendIcon()}</button>
       </div>
       ${this.footer()}</div>`;
     this.wireClose();
     this.bodyEl = this.host.querySelector<HTMLElement>('.lc-body');
+    this.srEl = this.host.querySelector<HTMLElement>('.lc-sr');
     const ta = this.host.querySelector<HTMLTextAreaElement>('textarea')!;
     const send = this.host.querySelector<HTMLButtonElement>('.lc-send')!;
 
@@ -357,6 +388,14 @@ export class WidgetUI {
     if (sm.src === SRC_INTERNAL) return;
     this.hideStaffTyping();
     if (this.upsertServer(sm)) this.renderList();
+    // Chỉ đọc TIN VỪA ĐẾN. Trước đây aria-live nằm trên .lc-body mà renderList() xoá trắng rồi dựng lại
+    // toàn bộ ⇒ screen reader đọc lại cả cuộc hội thoại sau mỗi tin.
+    if (this.srEl) this.srEl.textContent = sm.content ?? '';
+  }
+
+  /** Đưa con trỏ vào ô soạn tin (khi widget được mở — bàn phím phải tới thẳng chỗ gõ). */
+  focusComposer() {
+    this.host.querySelector<HTMLTextAreaElement>('.lc-composer textarea')?.focus();
   }
 
   private upsertServer(sm: WidgetMessage): boolean {
@@ -443,9 +482,10 @@ export class WidgetUI {
     col.className = 'lc-group-col';
     for (const m of group) {
       col.appendChild(this.bubble(m, out));
-      // Trạng thái gửi nằm NGOÀI bong bóng (dưới, chữ nhỏ) — để trong bong bóng màu chủ đạo bị mờ, khó đọc.
-      // Chỉ hiện khi CHƯA gửi xong; "Đã gửi" gộp vào dòng giờ cuối nhóm cho gọn.
-      if (out && m.status !== 'sent') col.appendChild(this.statusEl(m));
+      // CLS: chỉ tin LỖI mới sinh thêm phần tử (nút thử lại). "Đang gửi…"/"Đã gửi" gộp vào dòng giờ cuối
+      // nhóm — dòng đó luôn tồn tại nên không phần tử nào xuất hiện/biến mất khi tin đổi trạng thái
+      // sending → sent (cách gọn, thay vì render placeholder visibility:hidden cho MỌI tin của khách).
+      if (out && m.status === 'failed') col.appendChild(this.retryEl(m));
     }
     row.appendChild(col);
     wrap.appendChild(row);
@@ -453,20 +493,27 @@ export class WidgetUI {
     const last = group[group.length - 1];
     if (last.sentAt > 0) {
       const time = document.createElement('div');
-      time.className = `lc-group-time${out ? ' lc-out lc-status' : ''}`;
-      const hhmm = timeFormatter.format(new Date(last.sentAt)); // sent_at = MILLISECOND (gotcha #7)
-      time.textContent = out && last.status === 'sent' ? `${STRINGS.statusSent} · ${hhmm}` : hhmm;
+      time.className = `lc-group-time${out ? ' lc-out' : ''}`;
+      time.setAttribute('aria-hidden', 'true'); // nhiễu với screen reader; nội dung tin đã đọc qua .lc-sr
+      const hhmm = this.timeFormatter.format(new Date(last.sentAt)); // sent_at = MILLISECOND (gotcha #7)
+      if (out && last.status === 'sending') time.textContent = this.s.statusSending;
+      else if (out && last.status === 'sent') time.textContent = `${this.s.statusSent} · ${hhmm}`;
+      else time.textContent = hhmm;
       wrap.appendChild(time);
     }
     return wrap;
   }
 
-  /** Dòng trạng thái dưới bong bóng của khách khi đang gửi / gửi lỗi (lỗi: chạm để thử lại). */
-  private statusEl(m: RenderMsg): HTMLElement {
-    const el = document.createElement('div');
-    el.className = `lc-status${m.status === 'failed' ? ' lc-failed' : ''}`;
-    el.textContent = m.status === 'sending' ? STRINGS.statusSending : STRINGS.statusFailed;
-    if (m.status === 'failed' && m.echoId) {
+  /**
+   * Nút "Gửi lỗi · chạm để thử lại" dưới bong bóng của khách. Là <button> THẬT (không phải <div>): đây là
+   * điểm retry DUY NHẤT (bong bóng lỗi không còn bắt click) nên phải tab tới được + kích bằng bàn phím.
+   */
+  private retryEl(m: RenderMsg): HTMLElement {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'lc-status lc-failed';
+    el.textContent = this.s.statusFailed;
+    if (m.echoId) {
       const echoId = m.echoId;
       const text = m.content;
       el.addEventListener('click', () => this.cb.onRetry(echoId, text));
@@ -492,11 +539,8 @@ export class WidgetUI {
     }
     b.textContent = m.content; // XSS-safe
     void out;
-    if (m.status === 'failed' && m.echoId) {
-      const echoId = m.echoId;
-      const text = m.content;
-      b.addEventListener('click', () => this.cb.onRetry(echoId, text));
-    }
+    // KHÔNG gắn click retry lên bong bóng: giữ ĐÚNG 1 điểm retry (nút .lc-status.lc-failed bên dưới) —
+    // bong bóng là <div>, click trên đó không tới được bằng bàn phím.
     return b;
   }
 
@@ -505,7 +549,7 @@ export class WidgetUI {
     if (!this.typingEl) {
       this.typingEl = document.createElement('div');
       this.typingEl.className = 'lc-typing';
-      this.typingEl.setAttribute('aria-label', STRINGS.typingAriaLabel);
+      this.typingEl.setAttribute('aria-label', this.s.typingAriaLabel);
       this.typingEl.innerHTML = '<span></span><span></span><span></span>';
     }
     this.renderList();
@@ -549,31 +593,9 @@ function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// ── theme color math (AC2 — text luôn đủ contrast với primary_color admin chọn) ──
-function hexToRgb(hex: string): [number, number, number] | null {
-  const trimmed = hex.trim();
-  // Bỏ # nếu có, rồi chuẩn hoá 3 digit → 6 digit
-  let normalized = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
-  if (normalized.length === 3) {
-    normalized = normalized.split('').map(c => c + c).join('');
-  }
-  // Validate: đúng 6 hex digit
-  if (!/^[0-9a-f]{6}$/i.test(normalized)) return null;
-  const n = parseInt(normalized, 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-function onPrimaryColor(hex: string): string {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return '#fff';
-  const [r, g, b] = rgb;
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.55 ? '#111827' : '#fff';
-}
-function primarySoft(hex: string): string {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return 'rgba(22,119,255,.12)';
-  const [r, g, b] = rgb;
-  return `rgba(${r},${g},${b},.12)`;
+// Giờ hiển thị theo locale — KHÔNG còn hằng module-level 'vi'.
+function makeTimeFormatter(locale: Locale): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' });
 }
 
 function xIcon(): string {
