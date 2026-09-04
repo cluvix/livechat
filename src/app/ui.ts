@@ -212,8 +212,9 @@ export class WidgetUI {
         <div class="lc-header-brand">
           ${this.logoHtml(40, false)}
           <div class="lc-header-text">
-            <h1>${escapeText(brand)}</h1>
-            <div class="lc-header-sub"><span class="${dotCls}"></span><span>${escapeText(subtitle)}</span></div>
+            <h1${brand ? ` title="${escapeAttr(brand)}"` : ''}>${escapeText(brand)}</h1>
+            <div class="lc-header-sub"${subtitle ? ` title="${escapeAttr(subtitle)}"` : ''}>
+              <span class="${dotCls}"></span><span>${escapeText(subtitle)}</span></div>
           </div>
         </div>
         <button class="lc-x" type="button" aria-label="${escapeAttr(this.s.close)}">${xIcon()}</button>
@@ -340,20 +341,25 @@ export class WidgetUI {
     const avatarHtml = avatarUrl
       ? `<img class="lc-preview-avatar" src="${escapeAttr(avatarUrl)}" alt=""/>`
       : `<div class="lc-preview-avatar lc-preview-avatar-fallback">${escapeText(name.charAt(0).toUpperCase() || '?')}</div>`;
+    // B-06: cả khối preview là <button> thật (bàn phím tab tới + Enter/Space kích được), KHÔNG chỉ là div
+    // có onclick. aria-label gộp tên người gửi + nội dung, rút gọn 80 ký tự cho screen reader gọn.
+    const previewLabel = `${name}: ${campaign.message}`;
+    const previewLabelShort =
+      previewLabel.length > 80 ? previewLabel.slice(0, 80).trimEnd() + '…' : previewLabel;
     this.host.innerHTML = `<div class="lc-preview">
       <button class="lc-preview-x" type="button" aria-label="${escapeAttr(this.s.close)}">${xIcon()}</button>
-      <div class="lc-preview-body">
+      <button class="lc-preview-body" type="button" aria-label="${escapeAttr(previewLabelShort)}">
         ${avatarHtml}
         <div class="lc-preview-text">
           <div class="lc-preview-name">${escapeText(name)}</div>
           <div class="lc-preview-msg">${escapeText(campaign.message)}</div>
         </div>
-      </div></div>`;
+      </button></div>`;
     this.host.querySelector<HTMLButtonElement>('.lc-preview-x')!.addEventListener('click', (e) => {
       e.stopPropagation();
       cb.onDismiss();
     });
-    this.host.querySelector<HTMLElement>('.lc-preview-body')!.addEventListener('click', () => cb.onClick());
+    this.host.querySelector<HTMLButtonElement>('.lc-preview-body')!.addEventListener('click', () => cb.onClick());
     this.wireImageFallbacks(this.host, name.charAt(0).toUpperCase() || '?'); // avatar campaign: chữ đầu TÊN người gửi
     const el = this.host.querySelector<HTMLElement>('.lc-preview')!;
     return el.getBoundingClientRect().height || 96;

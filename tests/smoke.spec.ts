@@ -114,10 +114,15 @@ test.describe('smoke — mở/đóng, pre-chat, gửi/nhận tin, footer (AC2)',
 
     const widgetHost = page.locator('[data-cluvix-livechat]');
     await expect(widgetHost).toHaveCount(1);
-    await widgetHost.locator('.lc-launcher').click();
+    const launcher = widgetHost.locator('.lc-launcher');
+    // v1.3.1 mục 3 — pill launcher cao 56px (trước là 52px).
+    expect(await launcher.evaluate((el) => getComputedStyle(el).height)).toBe('56px');
+    await launcher.click();
 
     const frame = page.frameLocator('iframe.lc-frame');
     await expect(frame.locator('.lc-header-text h1')).toHaveText('Test Clinic');
+    // v1.3.1 mục 2 — brand truncate vẫn đọc được đầy đủ qua title (tooltip).
+    await expect(frame.locator('.lc-header-text h1')).toHaveAttribute('title', 'Test Clinic');
 
     await frame.locator('#lc-name').fill('Nguyễn Văn A');
     await frame.locator('#lc-phone').fill('0912345678');

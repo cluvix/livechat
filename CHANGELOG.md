@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-04
+
+### Fixed
+- Composer/pre-chat placeholders had no explicit colour and inherited black text colour, unreadable in
+  dark mode; now always `--lc-muted` (`opacity:1` — Firefox otherwise dims placeholders further).
+- Truncated brand name and subtitle in the header had no way to read the full text; both now carry a
+  `title` tooltip when non-empty.
+- The campaign compact-preview body was a `<div onclick>` — a dead click target for keyboard users and
+  invisible to assistive tech. It is now a real `<button>` (reset to look unstyled), keeps its own
+  `aria-label` (sender + message, truncated to 80 chars), and the dismiss `×` stays a separate button.
+- Header had no visual separation from the message list on plain flat brand colours; added a 1px bottom
+  line (`--lc-header-line`, theme-aware for dark mode).
+
+### Changed
+- Launcher pill grew from 52px to 56px tall with a softer two-layer shadow (was one flat shadow); the
+  compact-preview offset above it grew from 72px to 76px to match.
+
 ## [1.3.0] - 2026-09-04
 
 ### Added
@@ -104,7 +121,8 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/cluvix/livechat/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/cluvix/livechat/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cluvix/livechat/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/cluvix/livechat/compare/v1.1.0...v1.1.1

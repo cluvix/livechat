@@ -14,17 +14,18 @@ export const APP_CSS = `
 :root{--lc-primary:#1677ff;--lc-primary-strong:#1570f0;--lc-on-primary:#fff;
   --lc-soft-12:rgba(22,119,255,.12);--lc-soft-28:rgba(22,119,255,.28);--lc-primary-soft:var(--lc-soft-12);
   --lc-bg:#fff;--lc-surface:#fafafa;--lc-surface-2:#f8fafc;--lc-text:#111827;
-  --lc-muted:#565f6b;--lc-line:#e5e7eb;--lc-in-bg:#f1f3f5;--lc-danger:#c81e1e;--lc-danger-on:#fff}
+  --lc-muted:#565f6b;--lc-line:#e5e7eb;--lc-in-bg:#f1f3f5;--lc-danger:#c81e1e;--lc-danger-on:#fff;
+  --lc-header-line:rgba(0,0,0,.08)}
 /* Palette tối — muted #9198a1 đạt 6.5:1 trên --lc-surface và 5.94:1 trên --lc-bg (≥ AA 4.5:1, đo bằng
    shared/color.ts contrastRatio). */
 @media (prefers-color-scheme: dark){
   :root:not([data-lc-scheme="light"]){--lc-bg:#161b22;--lc-surface:#0d1117;--lc-surface-2:#1c2129;
     --lc-text:#e6edf3;--lc-muted:#9198a1;--lc-line:#30363d;--lc-in-bg:#21262d;--lc-danger:#ff7b72;
-    --lc-danger-on:#161b22;--lc-primary-soft:var(--lc-soft-28)}
+    --lc-danger-on:#161b22;--lc-primary-soft:var(--lc-soft-28);--lc-header-line:rgba(255,255,255,.08)}
 }
 :root[data-lc-scheme="dark"]{--lc-bg:#161b22;--lc-surface:#0d1117;--lc-surface-2:#1c2129;
   --lc-text:#e6edf3;--lc-muted:#9198a1;--lc-line:#30363d;--lc-in-bg:#21262d;--lc-danger:#ff7b72;
-  --lc-danger-on:#161b22;--lc-primary-soft:var(--lc-soft-28)}
+  --lc-danger-on:#161b22;--lc-primary-soft:var(--lc-soft-28);--lc-header-line:rgba(255,255,255,.08)}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
@@ -35,7 +36,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Ar
 .lc-header-wrap{flex:0 0 auto}
 .lc-header{background:var(--lc-primary-strong,var(--lc-primary));color:var(--lc-on-primary);
   padding:calc(14px + env(safe-area-inset-top,0px)) 16px 14px;display:flex;
-  align-items:center;justify-content:space-between;gap:10px}
+  align-items:center;justify-content:space-between;gap:10px;box-shadow:0 1px 0 var(--lc-header-line)}
 .lc-header-brand{display:flex;align-items:center;gap:10px;min-width:0}
 .lc-header-text{min-width:0}
 .lc-header h1{margin:0;font-size:15px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;
@@ -99,6 +100,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Ar
 .lc-composer textarea{flex:1 1 auto;resize:none;border:1px solid var(--lc-line);border-radius:22px;padding:9px 14px;
   font:inherit;max-height:120px;outline:none;line-height:1.4;background:var(--lc-bg);color:var(--lc-text)}
 .lc-composer textarea:focus{border-color:var(--lc-primary);box-shadow:0 0 0 3px var(--lc-primary-soft)}
+.lc-composer textarea::placeholder,.lc-field input::placeholder,.lc-field textarea::placeholder{
+  color:var(--lc-muted);opacity:1}
 .lc-send{flex:0 0 auto;width:40px;height:40px;border-radius:50%;border:0;
   background:var(--lc-primary-strong,var(--lc-primary));color:var(--lc-on-primary);
   cursor:pointer;display:flex;align-items:center;justify-content:center}
@@ -151,11 +154,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Ar
 /* story B-05: compact-preview — hiện trong khung nhỏ (loader resize theo set_compact_view), thay html/body
    height:100% (ở trên) bằng khối auto-height để loader đo đúng chiều cao thật cần cho khung. */
 .lc-preview{position:relative;height:auto;min-height:0;background:var(--lc-bg);border-radius:14px;
-  box-shadow:0 1px 3px rgba(0,0,0,.08);padding:12px 32px 12px 12px;cursor:pointer}
+  box-shadow:0 1px 3px rgba(0,0,0,.08);padding:12px 32px 12px 12px}
 .lc-preview-x{position:absolute;top:6px;right:6px;appearance:none;border:0;background:transparent;
   color:var(--lc-muted);cursor:pointer;padding:4px;border-radius:50%;display:flex}
 .lc-preview-x:hover{background:var(--lc-in-bg);color:var(--lc-text)}
-.lc-preview-body{display:flex;align-items:flex-start;gap:10px}
+/* B-06: cả khối message là 1 <button> thật (bàn phím tab+Enter/Space kích được) — reset toàn bộ style nút. */
+.lc-preview-body{appearance:none;border:0;background:transparent;text-align:start;font:inherit;color:inherit;
+  width:100%;padding:0;cursor:pointer;display:flex;align-items:flex-start;gap:10px}
+.lc-preview-body:focus-visible{outline:2px solid var(--lc-primary);outline-offset:2px;border-radius:8px}
 .lc-preview-avatar{width:36px;height:36px;border-radius:50%;flex:0 0 auto;object-fit:cover;background:var(--lc-in-bg)}
 .lc-preview-avatar-fallback{display:flex;align-items:center;justify-content:center;
   background:var(--lc-primary-strong,var(--lc-primary));

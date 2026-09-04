@@ -830,16 +830,16 @@ function shadowCss(
   return `
 :host{all:initial}
 *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
-.lc-launcher{position:fixed;bottom:calc(${offsetY}px + env(safe-area-inset-bottom,0px));${side}height:52px;min-width:52px;padding:0 18px 0 14px;border-radius:26px;border:none;
+.lc-launcher{position:fixed;bottom:calc(${offsetY}px + env(safe-area-inset-bottom,0px));${side}height:56px;min-width:56px;padding:0 20px 0 16px;border-radius:28px;border:none;
   cursor:pointer;background:${primaryStrongColor};color:${onPrimary};display:flex;align-items:center;justify-content:center;gap:8px;
   font:600 14px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;white-space:nowrap;
-  box-shadow:0 6px 20px rgba(0,0,0,.25);transition:transform .15s ease, box-shadow .15s ease}
+  box-shadow:0 4px 14px rgba(0,0,0,.18),0 2px 4px rgba(0,0,0,.12);transition:transform .15s ease, box-shadow .15s ease}
 .lc-launcher .lc-ic{width:22px;height:22px;flex:0 0 auto}
 /* Vòng focus: viền trong dùng màu chữ trên nút (tương phản với NỀN NÚT), viền ngoài dùng chính màu nút —
    nút nổi trên trang khách nền tuỳ ý, chỉ 1 vòng trắng thì mất hút trên trang nền sáng. */
 .lc-launcher:focus-visible{outline:3px solid ${onPrimary};outline-offset:3px;
-  box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 6px ${primaryStrongColor}}
-.lc-launcher:hover{transform:scale(1.06);box-shadow:0 8px 26px rgba(0,0,0,.32)}
+  box-shadow:0 4px 14px rgba(0,0,0,.18),0 2px 4px rgba(0,0,0,.12),0 0 0 6px ${primaryStrongColor}}
+.lc-launcher:hover{transform:scale(1.06);box-shadow:0 6px 18px rgba(0,0,0,.22),0 3px 6px rgba(0,0,0,.16)}
 .lc-launcher:active{transform:scale(.94)}
 .lc-badge{position:absolute;top:-2px;${left ? 'left:-2px;' : 'right:-2px;'}min-width:20px;height:20px;padding:0 5px;border-radius:10px;
   background:#dc2626;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center}
@@ -861,11 +861,11 @@ ${badgeRingCss(scheme)}
    không chồng lên nhau tốn chỗ. Vì vậy KHÔNG có biến thể "nút thu về hình tròn" khi mở. */
 .lc-launcher.lc-open{display:none}
 /* compact-preview vẫn nổi PHÍA TRÊN nút (nút còn hiện vì widget chưa "mở") */
-.lc-frame-wrap.lc-compact{bottom:${offsetY + 72}px;width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
+.lc-frame-wrap.lc-compact{bottom:${offsetY + 76}px;width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
 @media (max-width:480px){
   .lc-frame-wrap{top:0;left:0;right:0;bottom:0;width:100%;height:100%;max-height:none;border-radius:0}
   /* compact-preview vẫn phải là card nhỏ nổi trên mobile, không được luật full-screen ở trên đè lên */
-  .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:${offsetY + 72}px!important;
+  .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:${offsetY + 76}px!important;
     width:auto!important;max-width:calc(100vw - 24px);height:auto!important;border-radius:14px!important}
 }
 /* story-08 AC5: tôn trọng cấu hình hệ điều hành — không animation, khung hiện/ẩn tức thì.
