@@ -22,6 +22,30 @@ Add one script tag to your site, right before `</body>`:
 `YOUR_SITE_KEY` is issued when you create a livechat channel in the Cluvix admin (Config → Omni-channel
 → Livechat) — the connect dialog gives you the exact snippet, already filled in, including `data-host`.
 
+## Documentation
+
+| Guide | For | What's in it |
+|---|---|---|
+| [How it works](./docs/HOW_IT_WORKS.md) | everyone | The end-to-end flow, the loader ↔ iframe `postMessage` protocol, client-side storage, rate limits, locale/theme/dark-mode resolution. |
+| [Operations](./docs/OPERATIONS.md) | admins + ops | Creating a site, `allowed_origins` rules, identity secrets, campaigns, backend environment, nginx, service worker, deploy/rollback/upgrade, go-live checklist. |
+| [Troubleshooting](./docs/TROUBLESHOOTING.md) | everyone | Symptom → cause → check → fix, each with a `curl` command or a DevTools step. |
+| [Campaigns](./docs/CAMPAIGNS.md) | admins | Proactive messages: configuration, URL/time matching, snooze, idempotency, current limits. |
+| [Support](./SUPPORT.md) | everyone | Where to ask, what's in scope here, and what to include in a report. |
+
+Vietnamese translations live in [`docs/vi/`](./docs/vi/), same filenames.
+
+### How it works in 5 lines
+
+1. `widget.js` runs on your page, reads the `data-*` attributes, and paints a launcher inside a Shadow DOM.
+2. Opening the panel makes the **loader** call `POST /session` — only your page carries the `Origin` the
+   backend checks — which returns a 1-hour visitor JWT plus the site's theme/pre-chat config.
+3. The loader hands that session to the `widget.html` iframe over an origin-locked `postMessage` channel;
+   the iframe owns the chat UI and every JWT-authenticated call.
+4. Messages go out over `POST /message` (optimistic, retried on the same `client_echo_id`) and come back
+   over an SSE stream with a heartbeat, backoff reconnection, and history refetch after a gap.
+5. Optional extras layer on top: identity verification (HMAC, signed on your server) for a conversation
+   that follows the person across devices, and proactive campaigns matched entirely in the browser.
+
 ## Data attributes
 
 | Attribute | Required | Description |
@@ -40,7 +64,7 @@ either doesn't mount (`data-host`) or falls back to an anonymous session (identi
 
 ## Theme & localization
 
-Everything below is configured **in the Cluvix admin** (Config → Omni-channel → Livechat), not in the
+Everything below is configured **in the Cluvix admin** (Settings → Connected channels (`/config/omni-channel`) → Livechat card), not in the
 script tag — the backend returns it in `POST /session` and the widget applies it live.
 
 ### `widget_theme`
@@ -400,6 +424,15 @@ Open `http://localhost:5500`, use the on-page form to point the demo at your bac
   [Theme & localization](#theme--localization). No RTL support.
 - Identity hashes don't expire (no `exp`/replay protection) — see
   [Security notes](#security-notes).
+- **Campaigns are website-only and `only_business_hours` is not enforced** — the flag is stored but the
+  widget has no working-hours source yet, so it always matches. No audience segmentation, no scheduling
+  window, no campaign analytics, and no `URLPattern` polyfill (older browsers fall back to a simple `*`
+  glob). See [Campaigns](./docs/CAMPAIGNS.md#current-limitations).
+- **A campaign list is cached for 1 hour**, so newly enabled campaigns can take that long to reach a
+  visitor. Disabling one takes effect quickly — there is a bypass-cache re-check right before a preview is
+  shown.
+- **The `email` field of `identity` is accepted but not stored** in v2.
+- **The panel's open/closed state is only restored on desktop** (below 480 px it never auto-opens).
 
 ## Security notes
 

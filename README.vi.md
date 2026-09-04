@@ -23,6 +23,30 @@ Thêm 1 thẻ script vào trang, ngay trước `</body>`:
 `SITE_KEY_CUA_BAN` được cấp khi bạn tạo kênh livechat trong trang quản trị Cluvix (Cấu hình → Tổng đài
 đa kênh → Livechat) — dialog kết nối sẽ đưa cho bạn đúng snippet, đã điền sẵn, kèm `data-host`.
 
+## Tài liệu
+
+| Tài liệu | Dành cho | Nội dung |
+|---|---|---|
+| [Widget hoạt động thế nào](./docs/vi/HOW_IT_WORKS.md) | mọi người | Luồng đầu-cuối, giao thức `postMessage` loader ↔ iframe, lưu trữ phía client, rate limit, cách suy diễn locale/theme/chế độ tối. |
+| [Vận hành](./docs/vi/OPERATIONS.md) | admin + ops | Tạo site, luật `allowed_origins`, identity secret, campaign, biến môi trường backend, nginx, service worker, deploy/rollback/nâng cấp, checklist go-live. |
+| [Khắc phục sự cố](./docs/vi/TROUBLESHOOTING.md) | mọi người | Triệu chứng → nguyên nhân → cách kiểm → cách sửa, mỗi mục kèm lệnh `curl` hoặc bước DevTools. |
+| [Chiến dịch](./docs/vi/CAMPAIGNS.md) | admin | Tin chủ động: cấu hình, luật khớp URL/thời gian, snooze, idempotency, giới hạn hiện tại. |
+| [Support](./SUPPORT.md) | mọi người | Hỏi ở đâu, phạm vi hỗ trợ, và cần kèm thông tin gì khi báo lỗi (tiếng Anh). |
+
+Bản tiếng Anh nằm ở [`docs/`](./docs/), cùng tên file.
+
+### Tóm tắt trong 5 dòng
+
+1. `widget.js` chạy trên trang của bạn, đọc các thuộc tính `data-*`, và vẽ nút mở chat trong một Shadow DOM.
+2. Mở khung sẽ khiến **loader** gọi `POST /session` — chỉ trang của bạn mới mang đúng `Origin` mà backend
+   kiểm — và nhận về visitor JWT hạn 1 giờ cùng cấu hình theme/pre-chat của site.
+3. Loader trao phiên đó cho iframe `widget.html` qua kênh `postMessage` khoá origin; iframe giữ giao diện
+   chat và mọi lời gọi có xác thực bằng JWT.
+4. Tin nhắn đi ra qua `POST /message` (optimistic, gửi lại với cùng `client_echo_id`) và quay về qua một
+   stream SSE có nhịp tim, kết nối lại theo backoff, và nạp bù lịch sử sau khi mất kết nối.
+5. Hai phần tuỳ chọn chồng lên trên: identity verification (HMAC, ký ở server của bạn) cho một hội thoại đi
+   theo con người xuyên thiết bị, và chiến dịch chủ động khớp hoàn toàn trong trình duyệt.
+
 ## Data attributes
 
 | Attribute | Bắt buộc | Mô tả |
@@ -41,7 +65,7 @@ mount (`data-host`), hoặc rơi về phiên ẩn danh (identity).
 
 ## Theme & đa ngôn ngữ
 
-Toàn bộ mục dưới đây cấu hình **ở admin Cluvix** (Cấu hình → Omni-channel → Livechat), KHÔNG đặt trong
+Toàn bộ mục dưới đây cấu hình **ở admin Cluvix** (Cấu hình → Kênh kết nối (`/config/omni-channel`) → thẻ Livechat), KHÔNG đặt trong
 thẻ script — backend trả về trong `POST /session` và widget áp dụng ngay.
 
 ### `widget_theme`
@@ -56,7 +80,7 @@ thẻ script — backend trả về trong `POST /session` và widget áp dụng 
 | `logo_url` | URL https | Logo ở header/avatar. CHỈ nhận `https:`; khác thì rơi về chữ cái đầu thương hiệu. |
 | `brand_name` | string | Tiêu đề header. Bỏ trống → `launcher_label`, rồi tới mặc định theo locale. |
 | `subtitle` | string | Dòng dưới tiêu đề. Bỏ trống → widget hiện trạng thái trực tuyến/ngoại tuyến. |
-| `locale` | `vi` \| `en` | Ngôn ngữ UI. Tuỳ chọn — xem [Locale](#locale-1) bên dưới. |
+| `locale` | `vi` \| `en` | Ngôn ngữ UI. Tuỳ chọn — xem [Locale](#locale) bên dưới. |
 | `color_scheme` | `auto` \| `light` \| `dark` | Chế độ sáng/tối. `auto` (mặc định) theo hệ điều hành của khách (`prefers-color-scheme`); `light`/`dark` ép cứng. Tuỳ chọn — thiếu field ⇒ `auto`. |
 | `launcher_offset_x` | number | Khoảng cách **px** từ nút mở chat tới mép trái/phải (theo `position`). Mặc định `20`, clamp `0..200`; giá trị không phải số hữu hạn ⇒ dùng mặc định. Khung chat (desktop) và bong bóng campaign dùng chung offset này. |
 | `launcher_offset_y` | number | Khoảng cách **px** từ nút mở chat tới mép dưới. Mặc định `20`, clamp `0..200`. Máy có tai thỏ được cộng thêm safe-area inset. |
@@ -397,6 +421,14 @@ Mở `http://localhost:5500`, dùng form trên trang để trỏ demo tới back
   [Theme & đa ngôn ngữ](#theme--đa-ngôn-ngữ). Chưa hỗ trợ RTL.
 - Hash identity không có hạn dùng (không `exp`/chống replay) — xem
   [Ghi chú bảo mật](#ghi-chú-bảo-mật).
+- **Campaign chỉ theo website và `only_business_hours` chưa được áp dụng** — cờ này có lưu nhưng widget
+  chưa có nguồn giờ làm việc thật nên luôn coi là "trong giờ". Không phân nhóm khách, không có khung lịch
+  phát, không có thống kê campaign, và không polyfill `URLPattern` (trình duyệt cũ rơi về glob `*` đơn
+  giản). Xem [Chiến dịch](./docs/vi/CAMPAIGNS.md#giới-hạn-hiện-tại).
+- **Danh sách campaign được cache 1 giờ**, nên campaign vừa bật có thể mất tới chừng đó mới tới được khách.
+  Tắt một campaign thì có hiệu lực nhanh — có lượt kiểm lại bỏ cache ngay trước khi hiện preview.
+- **Trường `email` trong `identity` được nhận nhưng chưa lưu** ở v2.
+- **Trạng thái mở/đóng của khung chỉ được khôi phục trên desktop** (dưới 480 px không bao giờ tự mở).
 
 ## Ghi chú bảo mật
 
