@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-04
+
+### Changed
+- The chat panel now opens in place of the launcher (launcher hidden while open, shown again after closing with the header X) instead of floating above it. Campaign compact-preview keeps floating above the launcher.
+
 ## [1.1.0] - 2026-09-04
 
 ### Changed
@@ -52,6 +57,7 @@ verification.
 - Identity is kept in memory only, never persisted to `localStorage`.
 - Per-IP rate limiting on `/session`; per-visitor and per-IP rate limiting on `/message`.
 
-[Unreleased]: https://github.com/cluvix/livechat/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/cluvix/livechat/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/cluvix/livechat/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/cluvix/livechat/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cluvix/livechat/releases/tag/v1.0.0

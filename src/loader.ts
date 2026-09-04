@@ -713,7 +713,7 @@ function shadowCss(primary = '#1677ff', left = false): string {
 .lc-launcher.lc-open .lc-ic-x{display:block}
 .lc-badge{position:absolute;top:-2px;${left ? 'left:-2px;' : 'right:-2px;'}min-width:20px;height:20px;padding:0 5px;border-radius:10px;
   background:#ff5722;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center;box-shadow:0 0 0 2px #fff}
-.lc-frame-wrap{position:fixed;bottom:92px;${frameSide}width:350px;height:550px;max-height:calc(100vh - 112px);
+.lc-frame-wrap{position:fixed;bottom:20px;${frameSide}width:350px;height:550px;max-height:calc(100vh - 40px);
   border-radius:16px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28);background:#fff;
   opacity:0;transform:scale(.92);transform-origin:${frameOrigin};
   transition:opacity ${FRAME_ANIM_MS}ms ease, transform ${FRAME_ANIM_MS}ms ease, width .15s ease, height .15s ease}
@@ -723,10 +723,12 @@ function shadowCss(primary = '#1677ff', left = false): string {
 .lc-frame{width:100%;height:100%;border:0;display:block}
 /* story B-05: compact-preview — bong bóng nhỏ nổi trên bubble, KHÔNG chiếm màn hình đầy đủ. height do JS
    set qua style inline (postMessage set_compact_view {height}) — thắng width/height ở trên nhờ specificity. */
-.lc-frame-wrap.lc-compact{width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
+/* Khung mở THAY CHỖ nút (nút ẩn khi mở, hiện lại khi đóng bằng X trên header) — không chồng lên nhau tốn chỗ. */
+.lc-launcher.lc-open{display:none}
+/* compact-preview vẫn nổi PHÍA TRÊN nút (nút còn hiện vì widget chưa "mở") */
+.lc-frame-wrap.lc-compact{bottom:92px;width:300px;max-height:70vh;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
 @media (max-width:480px){
   .lc-frame-wrap{top:0;left:0;right:0;bottom:0;width:100%;height:100%;max-height:none;border-radius:0}
-  .lc-launcher.lc-open{display:none}
   /* compact-preview vẫn phải là card nhỏ nổi trên mobile, không được luật full-screen ở trên đè lên */
   .lc-frame-wrap.lc-compact{top:auto!important;left:12px!important;right:12px!important;bottom:92px!important;
     width:auto!important;max-width:calc(100vw - 24px);height:auto!important;border-radius:14px!important}
