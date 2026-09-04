@@ -2,8 +2,6 @@
 
 ## Reporting a vulnerability
 
-<!-- TODO(cluvix): user chưa xác nhận địa chỉ email nhận báo lỗi bảo mật — dùng placeholder dưới đây,
-     đổi lại đúng địa chỉ thật trước khi công khai repo. -->
 
 Please **do not** open a public GitHub issue for a security vulnerability.
 
